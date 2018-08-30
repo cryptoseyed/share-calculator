@@ -24,6 +24,8 @@ WORKING_HIGHT = 160000
 SLEEP_TIME = 0.5
 BLOCK_REWARD = 41
 POOL_FEE = 0
+DAEMON_PORT = 12211
+WALLET_RPC_PORT = 12213
 
 
 def message(string):
@@ -78,7 +80,8 @@ try:
 			HEADERS = {'Content-Type': 'application/json',}
 			DATA = '{"jsonrpc":"2.0","id":"0","method":\
 					"get_block","params":{"height":'+str(WORKING_HIGHT)+'}}'
-			RESPONSE = requests.post('http://127.0.0.1:12211/json_rpc', headers=HEADERS, data=DATA)
+			RESPONSE = requests.post('http://127.0.0.1:' + DAEMON_PORT + '/json_rpc', \
+									headers=HEADERS, data=DATA)
 
 			JSON_DATA = json.loads(RESPONSE.text)
 
@@ -121,15 +124,43 @@ try:
 						CURS.execute('SELECT blk_id from mined_blocks WHERE height=' + str(WORKING_HIGHT - 60))
 						BLK_ID = CURS.fetchone()[0]
 
+						DESTINATIONS = []
+
 						for i in range(len(USER_TOTAL_VALID_SHARE_IN_BLOCK)):
 							USER_TOTAL_VALID_SHARE_IN_BLOCK[i]['credit'] = \
 							USER_TOTAL_VALID_SHARE_IN_BLOCK[i]['valid_shares'] * \
 							(BLOCK_REWARD * (1 - POOL_FEE) / TOTAL_VALID_SHARE_IN_BLOCK)
+
+							CURS.execute('SELECT wallet FROM users WHERE uid=' + \
+str(USER_TOTAL_VALID_SHARE_IN_BLOCK[i]['uid']))
+							USER_WALLET = CURS.fetchone()[0]
+
+							DESTINATIONS.append({'amount': USER_TOTAL_VALID_SHARE_IN_BLOCK[i]['credit'], \
+												'address': USER_WALLET})
+
 							CURS.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (' + str(BLK_ID) \
 + ', ' + str(USER_TOTAL_VALID_SHARE_IN_BLOCK[i]['uid']) + ', ' + \
 str(USER_TOTAL_VALID_SHARE_IN_BLOCK[i]['credit']) + ')')
 
 						message('Block ' + str(WORKING_HIGHT - 60) + ' valid shares calculated')
+
+						PAYMENT_HEADERS = {'Content-Type': 'application/json',}
+						PAYMENT_DATA = '{"jsonrpc":"2.0","id":"0","method":\
+								"get_block","params":{"destinations":'+str(DESTINATIONS)+', "get_tx_key":true}}'
+						PAYMENT_RESPONSE = requests.post('http://127.0.0.1:' + WALLET_RPC_PORT + '/json_rpc', \
+												headers=HEADERS, data=DATA)
+
+						PAYMENT_JSON_DATA = json.loads(PAYMENT_RESPONSE.text)
+
+						if 'error' in PAYMENT_JSON_DATA:
+							raise Exception(PAYMENT_JSON_DATA['error']['message'])
+						elif 'result' in PAYMENT_JSON_DATA:
+							for i in USER_TOTAL_VALID_SHARE_IN_BLOCK:
+								CURS.execute('INSERT INTO payments (uid, amount, txid, time) VALUES \
+(' + i['uid'] + ', ' + int(i['credit']) + ', ' + PAYMENT_JSON_DATA['result']['tx_hash'] + \
+', ' + str(int(time.time())) + ')')
+
+							message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
 
 				WORKING_HIGHT += 1
 		else:
