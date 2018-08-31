@@ -20,6 +20,7 @@ from settings import SETTING
 colorama_init(autoreset=True)
 
 
+START_HIGHT = 160000
 WORKING_HIGHT = 160000
 SLEEP_TIME = 0.5
 BLOCK_REWARD = 41
@@ -129,11 +130,11 @@ def wallet_rpc(s_method, d_params=None):
 
 def valid_shares_between_block(cur, height):
 	prev_time = 0
-	if height != 0:
+	if height != START_HIGHT:
 		cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height - 1, ))
 		prev_time = cur.fetchone()
 
-	prev_time = prev_time[0]
+		prev_time = prev_time[0]
 
 	cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height, ))
 	cure_time = cur.fetchone()[0]
