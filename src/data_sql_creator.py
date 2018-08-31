@@ -34,4 +34,11 @@ for i in range(10000):
 
 MY_FILE.write('COMMIT;\n')
 
+for i in range(1, 4):
+	MY_FILE.write('INSERT INTO wpv1.users (uid, wallet) VALUES (' + str(i) + ', \'' + \
+'RYoLsevM5QKGZ24EBymoax8zNQcyYCamkVB7Vh9GjEvthPKnqGa8az9i9Th5gUXtsb\
+QytNiiiDu5cGUMhuBdNz2vRTrCm1bnQyL' + str(i) + '\');\n')
+
+MY_FILE.write('COMMIT;\n')
+
 MY_FILE.close()
