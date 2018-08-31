@@ -230,8 +230,5 @@ except KeyboardInterrupt:
 	sys.exit()
 
 except RuntimeError as my_exception:
-	# EXC_TYPE, EXC_OBJ, EXC_TB = sys.exc_info()
-	# FNAME = os.path.split(EXC_TB.tb_frame.f_code.co_filename)[1]
 	error(my_exception)
-	# print(EXC_TYPE, FNAME, EXC_TB.tb_lineno)
 	traceback.print_exception(*sys.exc_info())
