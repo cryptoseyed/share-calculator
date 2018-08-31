@@ -34,11 +34,17 @@ for i in range(10000):
 
 MY_FILE.write('COMMIT;\n')
 
-for i in range(1, 4):
-	MY_FILE.write('INSERT INTO wpv1.users (uid, wallet) VALUES (' + str(i) + ', \'' + \
-'RYoLsevM5QKGZ24EBymoax8zNQcyYCamkVB7Vh9GjEvthPKnqGa8az9i9Th5gUXtsb\
-QytNiiiDu5cGUMhuBdNz2vRTrCm1bnQyL' + str(i) + '\');\n')
+MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (0, \'\
+RYoHtNo3BGZNFas84dQpyaW7C1Ctorkz4EHMZf4fESEiAQBnnBSLhNr\', 100000000000);\n')
+MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (1, \'\
+RYoHtLHM1EHhEjBDBkCFpzMFJHSF7NG3b7WQWjM5ErRRT2Ly7DUZ4tG\', 2000000000);\n')
+MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (2, \'\
+RYoHtRbZaDziqyJf8CpkL8cfgusLmzuxvN9gLwd8GvtPc494Hdpygha\', 200000000000);\n')
+MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (3, \'\
+RYoHtPRCtgQ8pNFtwpt3dAj1ueZ2M85WLTLRhGdp325bT3PmcWHCLyx\', 50000000000);\n')
 
 MY_FILE.write('COMMIT;\n')
+
+print('User data added')
 
 MY_FILE.close()

@@ -23,9 +23,9 @@ colorama_init(autoreset=True)
 START_HIGHT = 160000
 WORKING_HIGHT = 160000
 SLEEP_TIME = 0.5
-BLOCK_REWARD = 41
+BLOCK_REWARD = 41000000000
 POOL_FEE = 0
-SG_WALLET_RPC_ADDR = 'localhost:12213'
+SG_WALLET_RPC_ADDR = 'localhost:12215'
 TG_WALLET_RPC_AUTH = ('test', 'test')
 SG_DAEMON_ADDR = 'localhost:12211'
 
@@ -153,12 +153,52 @@ def get_user_wallet(cur, uid):
 	return cur.fetchone()[0]
 
 def record_credit(cur, blk_id, uid, credit):
-	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
-						(blk_id, uid, credit))
+	cur.execute('SELECT * FROM credits WHERE uid=%s', (uid,))
+	result = cur.fetchone()
 
-def record_payment(cur, uid, amount, txid, txtime):
+	if result is None:
+		cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
+						(blk_id, uid, credit))
+	else:
+		new_credit = int(result[3]) + credit
+		cur.execute('UPDATE credits SET amount=%s WHERE uid=%s', (new_credit, uid))
+
+def get_user_payment_threshold(cur, uid):
+	cur.execute('SELECT payment_threshold FROM users WHERE uid=%s', (uid,))
+	return cur.fetchone()[0]
+
+def get_user_credit(cur, uid):
+	cur.execute('SELECT amount FROM credits WHERE uid=%s', (uid,))
+	return cur.fetchone()
+
+def update_credit(cur, uid, new_credit):
+	cur.execute('UPDATE credits SET amount=%s WHERE uid=%s', (new_credit, uid))
+
+def submit_payment(cur, uid, amount, txid, txtime):
 	cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
 						(uid, amount, txid, txtime))
+
+def record_payment(cur, uid, txid, txtime):
+	payment_threshold = int(get_user_payment_threshold(cur, uid))
+
+	credit = get_user_credit(cur, uid)
+	if credit is not None:
+		credit = int(credit[0])
+		if credit - payment_threshold >= 0:
+			new_payment = credit - payment_threshold + 1
+			new_credit = credit - new_payment
+
+			update_credit(cur, uid, new_credit)
+
+			submit_payment(cur, uid, new_payment, txid, txtime)
+
+def get_uids(cur):
+	uids = []
+
+	cur.execute('SELECT uid FROM users')
+	for i in cur.fetchall():
+		uids.append(i[0])
+	return uids
 
 def calculate_credit(cur, height):
 
@@ -196,8 +236,8 @@ def calculate_credit(cur, height):
 
 	json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
 
-	for i in user_total_valid_share_in_block:
-		record_payment(cur, i['uid'], int(i['credit']), json_data['tx_hash'], int(time.time()))
+	for i in get_uids(cur):
+		record_payment(cur, i, json_data['tx_hash'], int(time.time()))
 
 	message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
 
@@ -246,6 +286,8 @@ try:
 		WORKING_HIGHT += 1
 
 except KeyboardInterrupt:
+	print()
+	message('Bye!!!')
 	sys.exit()
 
 except RuntimeError as my_exception:
