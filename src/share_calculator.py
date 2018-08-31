@@ -273,7 +273,7 @@ try:
 
 	database_init(CURS, CONN)
 
-	wallet_rpc('open_wallet', {'filename': 'MyWalletTestnet', 'password': ''})
+	wallet_rpc('open_wallet', {'filename': SETTING["WALLET_NAME"], 'password': ''})
 
 	while True:
 
