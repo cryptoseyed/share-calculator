@@ -1,6 +1,5 @@
 import traceback
 import sys
-import os
 import datetime
 import time
 import json
@@ -128,80 +127,99 @@ def wallet_rpc(s_method, d_params=None):
 
 	return d_jsn['result']
 
+def valid_shares_between_block(cur, height):
+	prev_time = 0
+	if height != 0:
+		cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height - 1, ))
+		prev_time = cur.fetchone()
+
+	prev_time = prev_time[0]
+
+	cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height, ))
+	cure_time = cur.fetchone()[0]
+
+	cur.execute('SELECT * FROM valid_shares WHERE time BETWEEN %s AND %s', \
+					(prev_time + 1, cure_time))
+
+	return cur.fetchall()
+
+def get_block_id(cur, height):
+	cur.execute('SELECT blk_id from mined_blocks WHERE height=%s', (height, ))
+	return cur.fetchone()[0]
+
+def get_user_wallet(cur, uid):
+	cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
+	return cur.fetchone()[0]
+
+def record_credit(cur, blk_id, uid, credit):
+	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
+						(blk_id, uid, credit))
+
+def record_payment(cur, uid, amount, txid, txtime):
+	cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
+						(uid, amount, txid, txtime))
+
 def calculate_credit(cur, height):
-	cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height - 1, ))
-	prev_time = cur.fetchone()
 
-	if prev_time is not None:
-		prev_time = prev_time[0]
+	valid_shares = valid_shares_between_block(cur, height)
 
-		cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height, ))
-		cure_time = cur.fetchone()[0]
+	valid_shares.sort(key=lambda x: int(x[1]))
+	user_total_valid_share_in_block = []
+	total_valid_share_in_block = 0
 
-		cur.execute('SELECT * FROM valid_shares WHERE time BETWEEN %s AND %s', \
-						(prev_time + 1, cure_time))
-		valid_shares = cur.fetchall()
+	for elt, items in groupby(valid_shares, itemgetter(1)):
+		user_valid_shares_count = 0
+		for i in items:
+			user_valid_shares_count += int(i[3])
+		total_valid_share_in_block += user_valid_shares_count
+		user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
 
-		valid_shares.sort(key=lambda x: int(x[1]))
-		user_total_valid_share_in_block = []
-		total_valid_share_in_block = 0
+	blk_id = get_block_id(cur, height)
 
-		for elt, items in groupby(valid_shares, itemgetter(1)):
-			user_valid_shares_count = 0
-			for i in items:
-				user_valid_shares_count += int(i[3])
-			total_valid_share_in_block += user_valid_shares_count
-			user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
+	destinations = []
 
-		cur.execute('SELECT blk_id from mined_blocks WHERE height=%s', (height, ))
-		blk_id = cur.fetchone()[0]
+	for i, _ in enumerate(user_total_valid_share_in_block):
+		user_total_valid_share_in_block[i]['credit'] = \
+		user_total_valid_share_in_block[i]['valid_shares'] * \
+		(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
 
-		destinations = []
+		user_wallet = get_user_wallet(cur, user_total_valid_share_in_block[i]['uid'])
 
-		for i, _ in enumerate(user_total_valid_share_in_block):
-			user_total_valid_share_in_block[i]['credit'] = \
-			user_total_valid_share_in_block[i]['valid_shares'] * \
-			(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
+		destinations.append({'amount': int(user_total_valid_share_in_block[i]['credit']), \
+							'address': user_wallet})
 
-			CURS.execute('SELECT wallet FROM users WHERE uid=%s', \
-							(user_total_valid_share_in_block[i]['uid'], ))
-			user_wallet = CURS.fetchone()[0]
+		record_credit(cur, blk_id, user_total_valid_share_in_block[i]['uid'], \
+							user_total_valid_share_in_block[i]['credit'])
 
-			destinations.append({'amount': int(user_total_valid_share_in_block[i]['credit']), \
-								'address': user_wallet})
+	message('Block ' + str(height) + ' valid shares calculated')
 
-			CURS.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
-							(blk_id, \
-							user_total_valid_share_in_block[i]['uid'], \
-							user_total_valid_share_in_block[i]['credit']))
+	json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
 
-		message('Block ' + str(height) + ' valid shares calculated')
+	for i in user_total_valid_share_in_block:
+		record_payment(cur, i['uid'], int(i['credit']), json_data['tx_hash'], int(time.time()))
 
-		json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
+	message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
 
-		for i in user_total_valid_share_in_block:
-			cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
-							(i['uid'], \
-							int(i['credit']), \
-							json_data['tx_hash'], \
-							int(time.time())))
+def transaction_seen(cur, height):
+	cur.execute('UPDATE mined_blocks SET status=2 WHERE height=%s', (height, ))
+	message('Block ' + str(height) + ' status updated to 2')
 
-		message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
+	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height - 60, ))
+	result = cur.fetchone()
+
+	if result is not None:
+		if result[0] == 2:
+			update_status(cur, height-60, 3)
+
+def transaction_unlocked(cur, height):
+	cur.execute('UPDATE mined_blocks SET status=3 WHERE height=%s', (height, ))
+	message('Block ' + str(height) + ' status updated to 3')
 
 def update_status(cur, height, status):
 	if status == 2:
-		cur.execute('UPDATE mined_blocks SET status=2 WHERE height=%s', (height, ))
-		message('Block ' + str(height) + ' status updated to 2')
-
-		cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height - 60, ))
-		result = cur.fetchone()
-
-		if result is not None:
-			if result[0] == 2:
-				update_status(cur, height-60, 3)
+		transaction_seen(cur, height)
 	elif status == 3:
-		cur.execute('UPDATE mined_blocks SET status=3 WHERE height=%s', (height, ))
-		message('Block ' + str(height) + ' status updated to 3')
+		transaction_unlocked(cur, height)
 
 		calculate_credit(cur, height)
 	else:
