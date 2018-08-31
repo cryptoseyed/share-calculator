@@ -3,15 +3,18 @@ import json
 import random
 import requests
 
+from settings import SETTING
+
 MY_FILE = open("DATA.sql", "w+")
 
-for WORKING_HIGHT in range(160000, 160901):
+for WORKING_HIGHT in range(120000, 120901):
 	time.sleep(0.1)
 
 	HEADERS = {'Content-Type': 'application/json',}
 	DATA = '{"jsonrpc":"2.0","id":"0","method":\
 			"get_block","params":{"height":'+str(WORKING_HIGHT)+'}}'
-	RESPONSE = requests.post('http://127.0.0.1:12211/json_rpc', headers=HEADERS, data=DATA)
+	RESPONSE = requests.post('http://' + SETTING['SG_DAEMON_ADDR_TESTNET'] + \
+								'/json_rpc', headers=HEADERS, data=DATA)
 
 	JSON_DATA = json.loads(RESPONSE.text)
 
@@ -26,7 +29,7 @@ MY_FILE.write('COMMIT;\n')
 for i in range(10000):
 	RID = random.randint(1, 5)
 	UID = random.randint(1, 3)
-	TIME = random.randint(1533413533, 1533437454)
+	TIME = random.randint(1527131460, 1527360399)
 	COUNT = random.randint(1, 3000)
 	MY_FILE.write('INSERT INTO wpv1.valid_shares (rid, uid, time, count) VALUES (' \
 + str(RID) + ', ' + str(UID) + ', ' + str(TIME) + ', ' + str(COUNT) + ');\n')

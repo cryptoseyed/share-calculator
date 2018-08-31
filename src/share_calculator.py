@@ -20,14 +20,14 @@ from settings import SETTING
 colorama_init(autoreset=True)
 
 
-START_HIGHT = 160000
-WORKING_HIGHT = 160000
-SLEEP_TIME = 0.5
-BLOCK_REWARD = 41000000000
-POOL_FEE = 0
-SG_WALLET_RPC_ADDR = 'localhost:12215'
-TG_WALLET_RPC_AUTH = ('test', 'test')
-SG_DAEMON_ADDR = 'localhost:12211'
+START_HIGHT = SETTING['START_HIGHT']
+WORKING_HIGHT = SETTING['WORKING_HIGHT']
+SLEEP_TIME = SETTING['SLEEP_TIME']
+BLOCK_REWARD = SETTING['BLOCK_REWARD']
+POOL_FEE = SETTING['POOL_FEE']
+SG_WALLET_RPC_ADDR = SETTING['SG_WALLET_RPC_ADDR_TESTNET']
+TG_WALLET_RPC_AUTH = SETTING['TG_WALLET_RPC_AUTH_TESTNET']
+SG_DAEMON_ADDR = SETTING['SG_DAEMON_ADDR_TESTNET']
 
 
 def message(string):
@@ -116,8 +116,7 @@ def wallet_rpc(s_method, d_params=None):
 		'http://' + SG_WALLET_RPC_ADDR + '/json_rpc', \
 		data=json.dumps(d_rpc_input), \
 		headers=d_headers, \
-		timeout=60.0, #Wallet can be fairly slow for large requests
-		auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
+		timeout=60.0) #Wallet can be fairly slow for large requests
 
 	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
 		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
@@ -234,10 +233,11 @@ def calculate_credit(cur, height):
 
 	message('Block ' + str(height) + ' valid shares calculated')
 
-	json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
+	if destinations != []:
+		json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
 
-	for i in get_uids(cur):
-		record_payment(cur, i, json_data['tx_hash'], int(time.time()))
+		for i in get_uids(cur):
+			record_payment(cur, i, json_data['tx_hash'], int(time.time()))
 
 	message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
 
@@ -272,6 +272,8 @@ try:
 	CONN, CURS = connection_init()
 
 	database_init(CURS, CONN)
+
+	wallet_rpc('open_wallet', {'filename': 'MyWalletTestnet', 'password': ''})
 
 	while True:
 
