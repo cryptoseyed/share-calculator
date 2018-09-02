@@ -177,19 +177,21 @@ def submit_payment(cur, uid, amount, txid, txtime):
 	cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
 						(uid, amount, txid, txtime))
 
-def record_payment(cur, uid, txid, txtime):
+def record_payment(cur, uid):
 	payment_threshold = int(get_user_payment_threshold(cur, uid))
 
 	credit = get_user_credit(cur, uid)
+
 	if credit is not None:
 		credit = int(credit[0])
 		if credit - payment_threshold >= 0:
-			new_payment = credit - payment_threshold + 1
+			new_payment = int(credit / payment_threshold) * payment_threshold
 			new_credit = credit - new_payment
 
 			update_credit(cur, uid, new_credit)
 
-			submit_payment(cur, uid, new_payment, txid, txtime)
+			return new_payment
+	return 0
 
 def get_uids(cur):
 	uids = []
@@ -216,28 +218,35 @@ def calculate_credit(cur, height):
 
 	blk_id = get_block_id(cur, height)
 
-	destinations = []
-
 	for i, _ in enumerate(user_total_valid_share_in_block):
 		user_total_valid_share_in_block[i]['credit'] = \
 		user_total_valid_share_in_block[i]['valid_shares'] * \
 		(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
-
-		user_wallet = get_user_wallet(cur, user_total_valid_share_in_block[i]['uid'])
-
-		destinations.append({'amount': int(user_total_valid_share_in_block[i]['credit']), \
-							'address': user_wallet})
 
 		record_credit(cur, blk_id, user_total_valid_share_in_block[i]['uid'], \
 							user_total_valid_share_in_block[i]['credit'])
 
 	message('Block ' + str(height) + ' valid shares calculated')
 
-	if destinations != []:
-		json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
+	for i in get_uids(cur):
+		destinations = []
 
-		for i in get_uids(cur):
-			record_payment(cur, i, json_data['tx_hash'], int(time.time()))
+		new_payment = record_payment(cur, i)
+
+		if new_payment != 0:
+
+			user_wallet = get_user_wallet(cur, i)
+
+			destinations.append({'amount': new_payment, \
+								'address': user_wallet})
+
+			if destinations != []:
+				json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
+
+				submit_payment(cur, i, new_payment, json_data['tx_hash'], int(time.time()))
+
+				message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
+						' to ' + str(destinations[0]['address']))
 
 	message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
 

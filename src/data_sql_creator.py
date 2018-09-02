@@ -7,7 +7,7 @@ from settings import SETTING
 
 MY_FILE = open("DATA.sql", "w+")
 
-for WORKING_HIGHT in range(120000, 120901):
+for WORKING_HIGHT in range(120000, 120201):
 	time.sleep(0.1)
 
 	HEADERS = {'Content-Type': 'application/json',}
@@ -26,10 +26,10 @@ str(JSON_DATA['result']['block_header']['timestamp']) + ',1);\n')
 
 MY_FILE.write('COMMIT;\n')
 
-for i in range(10000):
+for i in range(1000):
 	RID = random.randint(1, 5)
 	UID = random.randint(1, 3)
-	TIME = random.randint(1527131460, 1527360399)
+	TIME = random.randint(1527131460, 1527181566)
 	COUNT = random.randint(1, 3000)
 	MY_FILE.write('INSERT INTO wpv1.valid_shares (rid, uid, time, count) VALUES (' \
 + str(RID) + ', ' + str(UID) + ', ' + str(TIME) + ', ' + str(COUNT) + ');\n')
@@ -40,9 +40,9 @@ MY_FILE.write('COMMIT;\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (0, \'\
 RYoHtNo3BGZNFas84dQpyaW7C1Ctorkz4EHMZf4fESEiAQBnnBSLhNr\', 100000000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (1, \'\
-RYoHtLHM1EHhEjBDBkCFpzMFJHSF7NG3b7WQWjM5ErRRT2Ly7DUZ4tG\', 2000000000);\n')
+RYoHtLHM1EHhEjBDBkCFpzMFJHSF7NG3b7WQWjM5ErRRT2Ly7DUZ4tG\', 20000000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (2, \'\
-RYoHtRbZaDziqyJf8CpkL8cfgusLmzuxvN9gLwd8GvtPc494Hdpygha\', 200000000000);\n')
+RYoHtRbZaDziqyJf8CpkL8cfgusLmzuxvN9gLwd8GvtPc494Hdpygha\', 20000000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (3, \'\
 RYoHtPRCtgQ8pNFtwpt3dAj1ueZ2M85WLTLRhGdp325bT3PmcWHCLyx\', 50000000000);\n')
 
