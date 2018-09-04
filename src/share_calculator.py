@@ -187,6 +187,7 @@ def get_balance(cur, uid):
 		return total_credit - total_payment
 	return 0
 
+
 def get_new_payment(cur, uid):
 	payment_threshold = int(get_user_payment_threshold(cur, uid))
 
