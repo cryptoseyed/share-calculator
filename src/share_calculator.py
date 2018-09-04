@@ -171,9 +171,7 @@ def submit_payment(cur, uid, amount, txid, txtime):
 	cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
 						(uid, amount, txid, txtime))
 
-def record_payment(cur, uid):
-	payment_threshold = int(get_user_payment_threshold(cur, uid))
-
+def get_balance(cur, uid):
 	credits = get_user_credit(cur, uid)
 
 	payments = get_user_payment(cur, uid)
@@ -186,13 +184,16 @@ def record_payment(cur, uid):
 		if payments is not None:
 			for payment in payments:
 				total_payment += int(payment[0])
+		return total_credit - total_payment
+	return 0
 
-		balance = total_credit - total_payment
+def get_new_payment(cur, uid):
+	payment_threshold = int(get_user_payment_threshold(cur, uid))
 
-		if balance - payment_threshold >= 0:
-			new_payment = int(balance / payment_threshold) * payment_threshold
+	balance = get_balance(cur, uid)
 
-			return new_payment
+	if balance - payment_threshold >= 0:
+		return int(balance / payment_threshold) * payment_threshold
 	return 0
 
 def get_uids(cur):
@@ -233,7 +234,7 @@ def calculate_credit(cur, height):
 	for i in get_uids(cur):
 		destinations = []
 
-		new_payment = record_payment(cur, i)
+		new_payment = get_new_payment(cur, i)
 
 		if new_payment != 0:
 
