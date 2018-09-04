@@ -152,15 +152,8 @@ def get_user_wallet(cur, uid):
 	return cur.fetchone()[0]
 
 def record_credit(cur, blk_id, uid, credit):
-	cur.execute('SELECT * FROM credits WHERE uid=%s', (uid,))
-	result = cur.fetchone()
-
-	if result is None:
-		cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
-						(blk_id, uid, credit))
-	else:
-		new_credit = int(result[3]) + credit
-		cur.execute('UPDATE credits SET amount=%s WHERE uid=%s', (new_credit, uid))
+	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
+					(blk_id, uid, credit))
 
 def get_user_payment_threshold(cur, uid):
 	cur.execute('SELECT payment_threshold FROM users WHERE uid=%s', (uid,))
@@ -168,10 +161,11 @@ def get_user_payment_threshold(cur, uid):
 
 def get_user_credit(cur, uid):
 	cur.execute('SELECT amount FROM credits WHERE uid=%s', (uid,))
-	return cur.fetchone()
+	return cur.fetchall()
 
-def update_credit(cur, uid, new_credit):
-	cur.execute('UPDATE credits SET amount=%s WHERE uid=%s', (new_credit, uid))
+def get_user_payment(cur, uid):
+	cur.execute('SELECT amount FROM payments WHERE uid=%s', (uid,))
+	return cur.fetchall()
 
 def submit_payment(cur, uid, amount, txid, txtime):
 	cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
@@ -180,15 +174,23 @@ def submit_payment(cur, uid, amount, txid, txtime):
 def record_payment(cur, uid):
 	payment_threshold = int(get_user_payment_threshold(cur, uid))
 
-	credit = get_user_credit(cur, uid)
+	credits = get_user_credit(cur, uid)
 
-	if credit is not None:
-		credit = int(credit[0])
-		if credit - payment_threshold >= 0:
-			new_payment = int(credit / payment_threshold) * payment_threshold
-			new_credit = credit - new_payment
+	payments = get_user_payment(cur, uid)
 
-			update_credit(cur, uid, new_credit)
+	if credits is not None:
+		total_credit = 0
+		for credit in credits:
+			total_credit += int(credit[0])
+		total_payment = 0
+		if payments is not None:
+			for payment in payments:
+				total_payment += int(payment[0])
+
+		balance = total_credit - total_payment
+
+		if balance - payment_threshold >= 0:
+			new_payment = int(balance / payment_threshold) * payment_threshold
 
 			return new_payment
 	return 0
