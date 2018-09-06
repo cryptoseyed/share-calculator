@@ -54,7 +54,7 @@ def connection_init():
 	return conn, cur
 
 def database_init(cur, conn):
-	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade')
+	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE \"status_setting\";')
 	conn.commit()
 	message('Schema wpv1 droped')
 
@@ -172,21 +172,39 @@ def submit_payment(cur, uid, amount, txid, txtime):
 						(uid, amount, txid, txtime))
 
 def get_balance(cur, uid):
-	credits = get_user_credit(cur, uid)
+	cur.execute("""SELECT
+						*
+					FROM (SELECT
+						COALESCE(SUM(amount), 0) AS sumCre
+					FROM (SELECT DISTINCT
+						amount,
+						blk_id,
+						uid
+					FROM credits
+					LEFT JOIN (SELECT
+						uid AS puid,
+						time AS pt,
+						amount AS pamount
+					FROM payments) AS payRes
+						ON uid = puid
+					WHERE uid = %s) AS creRes) AS sumCreRes
+					CROSS JOIN (SELECT
+						COALESCE(SUM(pamount), 0) AS sumPay
+					FROM (SELECT DISTINCT
+						pamount,
+						pt
+					FROM credits
+					LEFT JOIN (SELECT
+						uid AS puid,
+						time AS pt,
+						amount AS pamount
+					FROM payments) AS payRes
+						ON uid = puid
+					WHERE uid = %s) AS mainPayRes) AS sumPayRes""", (uid, uid))
 
-	payments = get_user_payment(cur, uid)
+	result = cur.fetchone()
 
-	if credits is not None:
-		total_credit = 0
-		for credit in credits:
-			total_credit += int(credit[0])
-		total_payment = 0
-		if payments is not None:
-			for payment in payments:
-				total_payment += int(payment[0])
-		return total_credit - total_payment
-	return 0
-
+	return result[0] - result[1]
 
 def get_new_payment(cur, uid):
 	payment_threshold = int(get_user_payment_threshold(cur, uid))
@@ -245,7 +263,12 @@ def calculate_credit(cur, height):
 								'address': user_wallet})
 
 			if destinations != []:
-				json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
+				json_data = {}
+
+				if SETTING['TESTING_MODE'] is True:
+					json_data['tx_hash'] = 'TEST'
+				else:
+					json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
 
 				submit_payment(cur, i, new_payment, json_data['tx_hash'], int(time.time()))
 
