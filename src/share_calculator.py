@@ -228,8 +228,9 @@ def check_payment_status(cur):
 
 	for txid in txids:
 		tx_height = get_transfer_height(txid[0])
-		if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
-			update_status_to_success(cur, txid)
+		if tx_height != 0:
+			if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
+				update_status_to_success(cur, txid)
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
 def calculate_credit(cur, height):
@@ -276,7 +277,6 @@ def calculate_credit(cur, height):
 				transfer_info = {}
 
 				txid = hexlify(urandom(32)).decode()
-				error(txid)
 
 				if TESTING_MODE is True:
 					json_data['tx_hash'] = 'TEST'
@@ -294,6 +294,8 @@ def calculate_credit(cur, height):
 						' to ' + str(destinations[0]['address']))
 
 	message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
+
+	check_payment_status(cur)
 
 def transaction_seen(cur, height):
 	cur.execute('UPDATE mined_blocks SET status=2 WHERE height=%s', (height, ))
