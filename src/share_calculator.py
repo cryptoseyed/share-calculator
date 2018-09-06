@@ -3,6 +3,8 @@ import sys
 import datetime
 import time
 import json
+from os import urandom
+from binascii import hexlify
 
 from operator import itemgetter
 from itertools import groupby
@@ -28,6 +30,11 @@ POOL_FEE = SETTING['POOL_FEE']
 SG_WALLET_RPC_ADDR = SETTING['SG_WALLET_RPC_ADDR_TESTNET']
 TG_WALLET_RPC_AUTH = SETTING['TG_WALLET_RPC_AUTH_TESTNET']
 SG_DAEMON_ADDR = SETTING['SG_DAEMON_ADDR_TESTNET']
+CHANGE_STATUS_TO_SUCCESS_LIMIT = SETTING['CHANGE_STATUS_TO_SUCCESS_LIMIT']
+WALLET_NAME = SETTING['WALLET_NAME']
+TESTING_MODE = SETTING['TESTING_MODE']
+PSQL_USERNAME = SETTING['psqlUser']
+PSQL_PASSWORD = SETTING['psqlPass']
 
 
 def message(string):
@@ -42,8 +49,8 @@ def error(string):
 
 def connection_init():
 	conn = psycopg2.connect(\
-				user=SETTING["psqlUser"], \
-				password=SETTING["psqlPass"], \
+				user=PSQL_USERNAME, \
+				password=PSQL_PASSWORD, \
 				host="localhost", \
 				port="5432")
 	message('Connection created')
@@ -168,39 +175,20 @@ def get_user_payment(cur, uid):
 	return cur.fetchall()
 
 def submit_payment(cur, uid, amount, txid, txtime):
-	cur.execute('INSERT INTO payments (uid, amount, txid, time) VALUES (%s, %s, %s, %s)', \
-						(uid, amount, txid, txtime))
+	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)', \
+						(uid, amount, txid, txtime, 'MONITORED'))
 
 def get_balance(cur, uid):
 	cur.execute("""SELECT
 						*
 					FROM (SELECT
-						COALESCE(SUM(amount), 0) AS sumCre
-					FROM (SELECT DISTINCT
-						amount,
-						blk_id,
-						uid
+						COALESCE(SUM(amount), 0) AS creSum
 					FROM credits
-					LEFT JOIN (SELECT
-						uid AS puid,
-						time AS pt,
-						amount AS pamount
-					FROM payments) AS payRes
-						ON uid = puid
-					WHERE uid = %s) AS creRes) AS sumCreRes
+					WHERE uid = %s) AS creRes
 					CROSS JOIN (SELECT
-						COALESCE(SUM(pamount), 0) AS sumPay
-					FROM (SELECT DISTINCT
-						pamount,
-						pt
-					FROM credits
-					LEFT JOIN (SELECT
-						uid AS puid,
-						time AS pt,
-						amount AS pamount
-					FROM payments) AS payRes
-						ON uid = puid
-					WHERE uid = %s) AS mainPayRes) AS sumPayRes""", (uid, uid))
+						COALESCE(SUM(amount), 0) AS paySum
+					FROM payments
+					WHERE uid = %s AND (status = 'MONITORED' OR status = 'SUCCESS')) AS payRes""", (uid, uid))
 
 	result = cur.fetchone()
 
@@ -222,6 +210,27 @@ def get_uids(cur):
 	for i in cur.fetchall():
 		uids.append(i[0])
 	return uids
+
+def update_status_to_success(cur, txid):
+	cur.execute("UPDATE payments SET status = 'SUCCESS' WHERE txid = %s", (txid,))
+
+def get_transfer_height(txid):
+	return wallet_rpc('get_transfer_by_txid', {'txid': txid})['transfer']['height']
+
+def get_current_block_height():
+	return wallet_rpc('getheight')['height']
+
+def check_payment_status(cur):
+	current_block_height = get_current_block_height()
+
+	cur.execute('SELECT txid FROM payments WHERE status = \'MONITORED\'')
+	txids = cur.fetchall()
+
+	for txid in txids:
+		tx_height = get_transfer_height(txid[0])
+		if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
+			update_status_to_success(cur, txid)
+	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
 def calculate_credit(cur, height):
 
@@ -264,13 +273,22 @@ def calculate_credit(cur, height):
 
 			if destinations != []:
 				json_data = {}
+				transfer_info = {}
 
-				if SETTING['TESTING_MODE'] is True:
+				txid = hexlify(urandom(32)).decode()
+				error(txid)
+
+				if TESTING_MODE is True:
 					json_data['tx_hash'] = 'TEST'
+					transfer_info['transfer'] = {}
+					transfer_info['transfer']['timestamp'] = 1536234479
 				else:
-					json_data = wallet_rpc('transfer', {'destinations': destinations, 'get_tx_key': True})
+					json_data = wallet_rpc('transfer', \
+											{'destinations': destinations, 'payment_id': txid}) # 'get_tx_key': True
+					transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
 
-				submit_payment(cur, i, new_payment, json_data['tx_hash'], int(time.time()))
+				submit_payment(cur, i, new_payment, json_data['tx_hash'], \
+								transfer_info['transfer']['timestamp'])
 
 				message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
 						' to ' + str(destinations[0]['address']))
@@ -309,7 +327,7 @@ try:
 
 	database_init(CURS, CONN)
 
-	wallet_rpc('open_wallet', {'filename': SETTING["WALLET_NAME"], 'password': ''})
+	wallet_rpc('open_wallet', {'filename': WALLET_NAME, 'password': ''})
 
 	while True:
 
@@ -321,6 +339,7 @@ try:
 
 			update_status(CURS, WORKING_HIGHT, 2)
 
+		print()
 		WORKING_HIGHT += 1
 
 except KeyboardInterrupt:

@@ -13,4 +13,5 @@ SETTING = {\
 "TG_WALLET_RPC_AUTH_TESTNET" : ('test', 'test'), \
 "SG_DAEMON_ADDR_TESTNET" : 'localhost:13311', \
 "WALLET_NAME": 'Your wallet name', \
-"TESTING_MODE": True}
+"TESTING_MODE": True, \
+"CHANGE_STATUS_TO_SUCCESS_LIMIT": 10}
