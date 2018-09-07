@@ -61,7 +61,7 @@ def connection_init():
 	return conn, cur
 
 def database_init(cur, conn):
-	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE \"status_setting\";')
+	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE IF EXISTS \"status_setting\";')
 	conn.commit()
 	message('Schema wpv1 droped')
 
@@ -80,15 +80,13 @@ def database_init(cur, conn):
 	message('Set search_path to wpv1')
 
 def get_block_status(cur, height):
-	while True:
-		time.sleep(SLEEP_TIME)
+	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height, ))
+	result = cur.fetchone()
 
-		cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height, ))
-		result = cur.fetchone()
-		if result is None:
-			continue
-		else:
-			return result[0]
+	if result is None:
+		return None
+	else:
+		return result[0]
 
 def daemon(s_method, d_params=None):
 	d_headers = {'Content-Type': 'application/json'}
@@ -178,38 +176,51 @@ def submit_payment(cur, uid, amount, txid, txtime):
 	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)', \
 						(uid, amount, txid, txtime, 'MONITORED'))
 
-def get_balance(cur, uid):
+def get_balances_and_thresholds(cur):
 	cur.execute("""SELECT
-						*
+						uid,
+						creSum,
+						paySum,
+						payTh.payment_threshold
 					FROM (SELECT
-						COALESCE(SUM(amount), 0) AS creSum
-					FROM credits
-					WHERE uid = %s) AS creRes
-					CROSS JOIN (SELECT
-						COALESCE(SUM(amount), 0) AS paySum
-					FROM payments
-					WHERE uid = %s AND (status = 'MONITORED' OR status = 'SUCCESS')) AS payRes""", (uid, uid))
+						cuid AS uid,
+						creRes.creSum,
+						COALESCE(payRes.paySum, 0) AS paySum
+					FROM (SELECT
+						COALESCE(SUM(amount), 0) AS creSum,
+						uid AS cuid
+					FROM wpv1.credits
+					GROUP BY cuid) AS creRes
+					LEFT JOIN (SELECT
+						COALESCE(SUM(amount), 0) AS paySum,
+						uid AS puid
+					FROM wpv1.payments
+					GROUP BY puid) AS payRes
+						ON puid = cuid) AS balance
+					LEFT JOIN (SELECT
+						uid AS tuid,
+						payment_threshold
+					FROM users) AS payTh
+						ON tuid = uid""")
 
-	result = cur.fetchone()
+	results = cur.fetchall()
+	return_value = []
 
-	return result[0] - result[1]
+	for result in results:
+		return_value.append([result[0], result[1] - result[2], result[3]])
 
-def get_new_payment(cur, uid):
-	payment_threshold = int(get_user_payment_threshold(cur, uid))
+	return return_value
 
-	balance = get_balance(cur, uid)
+def get_new_payments(cur):
+	balances_and_thresholds = get_balances_and_thresholds(cur)
 
-	if balance - payment_threshold >= 0:
-		return int(balance / payment_threshold) * payment_threshold
-	return 0
+	new_payments = []
 
-def get_uids(cur):
-	uids = []
+	for item in balances_and_thresholds:
+		if item[1] - item[2] >= 0:
+			new_payments.append([item[0], int(item[1] / item[2]) * item[2]])
 
-	cur.execute('SELECT uid FROM users')
-	for i in cur.fetchall():
-		uids.append(i[0])
-	return uids
+	return new_payments
 
 def update_status_to_success(cur, txid):
 	cur.execute("UPDATE payments SET status = 'SUCCESS' WHERE txid = %s", (txid,))
@@ -260,43 +271,6 @@ def calculate_credit(cur, height):
 
 	message('Block ' + str(height) + ' valid shares calculated')
 
-	for i in get_uids(cur):
-		destinations = []
-
-		new_payment = get_new_payment(cur, i)
-
-		if new_payment != 0:
-
-			user_wallet = get_user_wallet(cur, i)
-
-			destinations.append({'amount': new_payment, \
-								'address': user_wallet})
-
-			if destinations != []:
-				json_data = {}
-				transfer_info = {}
-
-				txid = hexlify(urandom(32)).decode()
-
-				if TESTING_MODE is True:
-					json_data['tx_hash'] = 'TEST'
-					transfer_info['transfer'] = {}
-					transfer_info['transfer']['timestamp'] = 1536234479
-				else:
-					json_data = wallet_rpc('transfer', \
-											{'destinations': destinations, 'payment_id': txid}) # 'get_tx_key': True
-					transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
-
-				submit_payment(cur, i, new_payment, json_data['tx_hash'], \
-								transfer_info['transfer']['timestamp'])
-
-				message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
-						' to ' + str(destinations[0]['address']))
-
-	message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
-
-	check_payment_status(cur)
-
 def transaction_seen(cur, height):
 	cur.execute('UPDATE mined_blocks SET status=2 WHERE height=%s', (height, ))
 	message('Block ' + str(height) + ' status updated to 2')
@@ -306,7 +280,8 @@ def transaction_seen(cur, height):
 
 	if result is not None:
 		if result[0] == 2:
-			update_status(cur, height-60, 3)
+			return update_status(cur, height-60, 3)
+	return [2, height]
 
 def transaction_unlocked(cur, height):
 	cur.execute('UPDATE mined_blocks SET status=3 WHERE height=%s', (height, ))
@@ -314,11 +289,10 @@ def transaction_unlocked(cur, height):
 
 def update_status(cur, height, status):
 	if status == 2:
-		transaction_seen(cur, height)
+		return transaction_seen(cur, height)
 	elif status == 3:
 		transaction_unlocked(cur, height)
-
-		calculate_credit(cur, height)
+		return [3, height]
 	else:
 		raise RuntimeError('Invalid status code')
 
@@ -332,17 +306,64 @@ try:
 	wallet_rpc('open_wallet', {'filename': WALLET_NAME, 'password': ''})
 
 	while True:
+		VALID_PAYMENT_MESSAGE = False
+
+		check_payment_status(CURS)
 
 		RESULT = get_block_status(CURS, WORKING_HIGHT)
 
-		if RESULT in (0, 1):
+		if RESULT is not None:
+			if RESULT in (0, 1):
 
-			JSON_DATA = daemon('get_block', {'height': WORKING_HIGHT})
+				JSON_DATA = daemon('get_block', {'height': WORKING_HIGHT})
 
-			update_status(CURS, WORKING_HIGHT, 2)
+				UPDATE_RESULT = update_status(CURS, WORKING_HIGHT, 2)
 
-		print()
-		WORKING_HIGHT += 1
+				if UPDATE_RESULT[0] == 3:
+					calculate_credit(CURS, UPDATE_RESULT[1])
+
+				NEW_PAYMENTS = get_new_payments(CURS)
+
+				for new_payment in NEW_PAYMENTS:
+					VALID_PAYMENT_MESSAGE = True
+
+					destinations = []
+
+					if new_payment != 0:
+
+						user_wallet = get_user_wallet(CURS, new_payment[0])
+
+						destinations.append({'amount': new_payment[1], \
+											'address': user_wallet})
+
+						if destinations != []:
+							json_data = {}
+							transfer_info = {}
+
+							TXID = hexlify(urandom(32)).decode()
+
+							if TESTING_MODE is True:
+								json_data['tx_hash'] = 'TEST'
+								transfer_info['transfer'] = {}
+								transfer_info['transfer']['timestamp'] = 1536234479
+							else:
+								json_data = wallet_rpc('transfer', \
+														{'destinations': destinations, 'payment_id': TXID}) # 'get_tx_key': True
+								transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+
+							submit_payment(CURS, new_payment[0], new_payment[1], json_data['tx_hash'], \
+											transfer_info['transfer']['timestamp'])
+
+							message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
+									' to ' + str(destinations[0]['address']))
+
+				if VALID_PAYMENT_MESSAGE is True:
+					message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
+
+			print()
+			WORKING_HIGHT += 1
+
+		time.sleep(SLEEP_TIME)
 
 except KeyboardInterrupt:
 	print()
