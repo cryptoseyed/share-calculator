@@ -237,15 +237,27 @@ def check_payment_status(cur):
 	cur.execute('SELECT txid FROM payments WHERE status = \'MONITORED\'')
 	txids = cur.fetchall()
 
+	transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True})
+	transfers = transfers['pool'] + transfers['out']
+
 	for txid in txids:
-		tx_height = get_transfer_height(txid[0])
+		txid = txid[0]
+		is_in_list = False
+		tx_height = 0
+		for transfer in transfers:
+			if transfer['txid'] == txid[0]:
+				is_in_list = True
+				tx_height = transfer['height']
+				break
+
 		if tx_height != 0:
 			if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
-				transfer_type_info = wallet_rpc('get_transfer_by_txid', {'txid': txid})['transfer']['type']
-				if transfer_type_info == 'failed':
-					update_status(cur, txid, 'FAILED')
-				elif transfer_type_info == 'out':
+
+				if is_in_list is True:
 					update_status(cur, txid, 'SUCCESS')
+				else:
+					update_status(cur, txid, 'FAILED')
+
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
 def calculate_credit(cur, height):
