@@ -120,7 +120,8 @@ def wallet_rpc(s_method, d_params=None):
 		'http://' + SG_WALLET_RPC_ADDR + '/json_rpc', \
 		data=json.dumps(d_rpc_input), \
 		headers=d_headers, \
-		timeout=60.0) #Wallet can be fairly slow for large requests
+		timeout=60.0, #Wallet can be fairly slow for large requests
+		auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
 
 	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
 		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
@@ -221,8 +222,8 @@ def get_new_payments(cur):
 
 	return new_payments
 
-def update_status_to_success(cur, txid):
-	cur.execute("UPDATE payments SET status = 'SUCCESS' WHERE txid = %s", (txid,))
+def update_status(cur, txid, status):
+	cur.execute("UPDATE payments SET status = '%s' WHERE txid = %s", (status, txid))
 
 def get_transfer_height(txid):
 	return wallet_rpc('get_transfer_by_txid', {'txid': txid})['transfer']['height']
@@ -240,7 +241,11 @@ def check_payment_status(cur):
 		tx_height = get_transfer_height(txid[0])
 		if tx_height != 0:
 			if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
-				update_status_to_success(cur, txid)
+				transfer_type_info = wallet_rpc('get_transfer_by_txid', {'txid': txid})['transfer']['type']
+				if transfer_type_info == 'failed':
+					update_status(cur, txid, 'FAILED')
+				elif transfer_type_info == 'out':
+					update_status(cur, txid, 'SUCCESS')
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
 def calculate_credit(cur, height):
@@ -307,7 +312,11 @@ def pay_payments(cur, new_payments):
 						' to ' + str(destinations[0]['address']))
 
 	if valid_payment_message is True:
-		message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
+		message('Payments completed')
+
+def get_working_hight(cur):
+	cur.execute('SELECT COALESCE(MAX(blk_id), 0) FROM credits')
+	return cur.fetchone()[0]
 
 try:
 	CONN = None
@@ -324,6 +333,8 @@ try:
 
 		check_payment_status(CURS)
 
+		WORKING_HIGHT = get_working_hight(CURS)
+
 		CURRENT_BLOCK_STATUS = get_block_status(CURS, WORKING_HIGHT)
 
 		IS_WORKING_IN_THIS_BLOCK_ENDS = False
@@ -335,14 +346,10 @@ try:
 					if PAST_BLOCK_STATUS == 3:
 
 						calculate_credit(CURS, WORKING_HIGHT - 60)
-						IS_WORKING_IN_THIS_BLOCK_ENDS = True
 
 		NEW_PAYMENTS = get_new_payments(CURS)
 
 		pay_payments(CURS, NEW_PAYMENTS)
-
-		if IS_WORKING_IN_THIS_BLOCK_ENDS is True:
-			WORKING_HIGHT += 1
 
 		print()
 
