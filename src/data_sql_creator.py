@@ -22,7 +22,7 @@ for WORKING_HIGHT in range(120000, 120201):
 		print(JSON_DATA['result']['miner_tx_hash'])
 		MY_FILE.write('INSERT into wpv1.mined_blocks (txid, height, time, status) \
 VALUES (\'' + JSON_DATA['result']['miner_tx_hash'] + '\', ' + str(WORKING_HIGHT) + ', ' + \
-str(JSON_DATA['result']['block_header']['timestamp']) + ',1);\n')
+str(JSON_DATA['result']['block_header']['timestamp']) + ', 2);\n')
 
 MY_FILE.write('COMMIT;\n')
 

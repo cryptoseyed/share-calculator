@@ -83,10 +83,9 @@ def get_block_status(cur, height):
 	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height, ))
 	result = cur.fetchone()
 
-	if result is None:
-		return None
-	else:
-		return result[0]
+	if result is not None:
+		result = result[0]
+	return result
 
 def daemon(s_method, d_params=None):
 	d_headers = {'Content-Type': 'application/json'}
@@ -271,30 +270,44 @@ def calculate_credit(cur, height):
 
 	message('Block ' + str(height) + ' valid shares calculated')
 
-def transaction_seen(cur, height):
-	cur.execute('UPDATE mined_blocks SET status=2 WHERE height=%s', (height, ))
-	message('Block ' + str(height) + ' status updated to 2')
+def pay_payments(cur, new_payments):
+	valid_payment_message = False
 
-	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height - 60, ))
-	result = cur.fetchone()
+	for new_payment in new_payments:
+		valid_payment_message = True
 
-	if result is not None:
-		if result[0] == 2:
-			return update_status(cur, height-60, 3)
-	return [2, height]
+		destinations = []
 
-def transaction_unlocked(cur, height):
-	cur.execute('UPDATE mined_blocks SET status=3 WHERE height=%s', (height, ))
-	message('Block ' + str(height) + ' status updated to 3')
+		if new_payment != 0:
 
-def update_status(cur, height, status):
-	if status == 2:
-		return transaction_seen(cur, height)
-	elif status == 3:
-		transaction_unlocked(cur, height)
-		return [3, height]
-	else:
-		raise RuntimeError('Invalid status code')
+			user_wallet = get_user_wallet(cur, new_payment[0])
+
+			destinations.append({'amount': new_payment[1], \
+								'address': user_wallet})
+
+			if destinations != []:
+				json_data = {}
+				transfer_info = {}
+
+				txid = hexlify(urandom(32)).decode()
+
+				if TESTING_MODE is True:
+					json_data['tx_hash'] = 'TEST'
+					transfer_info['transfer'] = {}
+					transfer_info['transfer']['timestamp'] = 1536234479
+				else:
+					json_data = wallet_rpc('transfer', \
+											{'destinations': destinations, 'payment_id': txid}) # 'get_tx_key': True
+					transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+
+				submit_payment(cur, new_payment[0], new_payment[1], json_data['tx_hash'], \
+								transfer_info['transfer']['timestamp'])
+
+				message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
+						' to ' + str(destinations[0]['address']))
+
+	if valid_payment_message is True:
+		message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
 
 try:
 	CONN = None
@@ -306,62 +319,32 @@ try:
 	wallet_rpc('open_wallet', {'filename': WALLET_NAME, 'password': ''})
 
 	while True:
-		VALID_PAYMENT_MESSAGE = False
+
+		message('Block: ' + str(WORKING_HIGHT))
 
 		check_payment_status(CURS)
 
-		RESULT = get_block_status(CURS, WORKING_HIGHT)
+		CURRENT_BLOCK_STATUS = get_block_status(CURS, WORKING_HIGHT)
 
-		if RESULT is not None:
-			if RESULT in (0, 1):
+		IS_WORKING_IN_THIS_BLOCK_ENDS = False
+		if CURRENT_BLOCK_STATUS is not None:
+			if CURRENT_BLOCK_STATUS == 2:
 
-				JSON_DATA = daemon('get_block', {'height': WORKING_HIGHT})
+				PAST_BLOCK_STATUS = get_block_status(CURS, WORKING_HIGHT - 60)
+				if PAST_BLOCK_STATUS is not None:
+					if PAST_BLOCK_STATUS == 3:
 
-				UPDATE_RESULT = update_status(CURS, WORKING_HIGHT, 2)
+						calculate_credit(CURS, WORKING_HIGHT - 60)
+						IS_WORKING_IN_THIS_BLOCK_ENDS = True
 
-				if UPDATE_RESULT[0] == 3:
-					calculate_credit(CURS, UPDATE_RESULT[1])
+		NEW_PAYMENTS = get_new_payments(CURS)
 
-				NEW_PAYMENTS = get_new_payments(CURS)
+		pay_payments(CURS, NEW_PAYMENTS)
 
-				for new_payment in NEW_PAYMENTS:
-					VALID_PAYMENT_MESSAGE = True
-
-					destinations = []
-
-					if new_payment != 0:
-
-						user_wallet = get_user_wallet(CURS, new_payment[0])
-
-						destinations.append({'amount': new_payment[1], \
-											'address': user_wallet})
-
-						if destinations != []:
-							json_data = {}
-							transfer_info = {}
-
-							TXID = hexlify(urandom(32)).decode()
-
-							if TESTING_MODE is True:
-								json_data['tx_hash'] = 'TEST'
-								transfer_info['transfer'] = {}
-								transfer_info['transfer']['timestamp'] = 1536234479
-							else:
-								json_data = wallet_rpc('transfer', \
-														{'destinations': destinations, 'payment_id': TXID}) # 'get_tx_key': True
-								transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
-
-							submit_payment(CURS, new_payment[0], new_payment[1], json_data['tx_hash'], \
-											transfer_info['transfer']['timestamp'])
-
-							message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
-									' to ' + str(destinations[0]['address']))
-
-				if VALID_PAYMENT_MESSAGE is True:
-					message('Block ' + str(WORKING_HIGHT - 60) + ' payment completed')
-
-			print()
+		if IS_WORKING_IN_THIS_BLOCK_ENDS is True:
 			WORKING_HIGHT += 1
+
+		print()
 
 		time.sleep(SLEEP_TIME)
 
