@@ -239,24 +239,20 @@ def check_payment_status(cur):
 
 	transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True})
 	transfers = transfers['pool'] + transfers['out']
+	wallet_transfers = {}
+	for transfer in transfers:
+		wallet_transfers[transfer['txid']] = transfer['height']
 
 	for txid in txids:
 		txid = txid[0]
-		is_in_list = False
 		tx_height = 0
-		for transfer in transfers:
-			if transfer['txid'] == txid[0]:
-				is_in_list = True
-				tx_height = transfer['height']
-				break
-
-		if tx_height != 0:
-			if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
-
-				if is_in_list is True:
+		if txid in wallet_transfers:
+			tx_height = wallet_transfers[txid]
+			if tx_height != 0:
+				if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
 					update_status(cur, txid, 'SUCCESS')
-				else:
-					update_status(cur, txid, 'FAILED')
+		else:
+			update_status(cur, txid, 'FAILED')
 
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
