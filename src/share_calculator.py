@@ -79,13 +79,44 @@ def database_init(cur, conn):
 	conn.commit()
 	message('Set search_path to wpv1')
 
+def update_block_status(cur, height, status):
+	cur.execute("UPDATE mined_blocks SET status = '%s' WHERE height = %s", (status, height))
+
 def get_block_status(cur, height):
 	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height, ))
-	result = cur.fetchone()
+	block_current_status = cur.fetchone()
 
-	if result is not None:
-		result = result[0]
-	return result
+	if block_current_status is not None:
+		block_current_status = block_current_status[0]
+	else:
+		return None
+
+	if block_current_status in (0,1):
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
+												'in': True, 'pending': True, \
+												'failed': True, 'filter_by_height': True, \
+												'min_height': height-10, 'max_height': height-10})
+		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
+					transfers['pending'] +transfers['failed'] 
+
+		if transfers != []:
+			update_block_status(cur, height-10, 2)
+		else:
+			update_block_status(cur, height-10, -1)
+	elif block_current_status == 2:
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
+												'in': True, 'pending': True, \
+												'failed': True, 'filter_by_height': True, \
+												'min_height': height-60, 'max_height': height-60})
+		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
+					transfers['pending'] +transfers['failed']
+
+		if transfers != []:
+			update_block_status(cur, height-60, 3)
+		else:
+			update_block_status(cur, height-60, -1)
+
+	return block_current_status
 
 def daemon(s_method, d_params=None):
 	d_headers = {'Content-Type': 'application/json'}
@@ -358,6 +389,7 @@ try:
 					if PAST_BLOCK_STATUS == 3:
 
 						calculate_credit(CURS, WORKING_HIGHT - 60)
+						update_block_status(CURS, WORKING_HIGHT - 60, 4)
 
 		NEW_PAYMENTS = get_new_payments(CURS)
 
