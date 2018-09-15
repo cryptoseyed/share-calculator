@@ -1,8 +1,6 @@
 SETTING = {\
 "psqlUser": 'Your postgres username', \
 "psqlPass": 'Your postgres password', \
-"START_HIGHT" : 120000, \
-"WORKING_HIGHT" : 120000, \
 "SLEEP_TIME" : 0.5, \
 "BLOCK_REWARD" : 5000000000, \
 "POOL_FEE" : 0, \
