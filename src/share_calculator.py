@@ -85,50 +85,46 @@ def update_block_status(cur, height, status):
 def get_block_status(cur):
 	wallet_height = get_wallet_hight()
 
-	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (wallet_height-10, ))
-	working_block_status = cur.fetchone()
+	cur.execute('SELECT height FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s', \
+				(wallet_height-10,))
+	heights = cur.fetchall()
 
-	if working_block_status is not None:
-		working_block_status = working_block_status[0]
-		if working_block_status in (0, 1):
-			transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
-													'in': True, 'pending': True, \
-													'failed': True, 'filter_by_height': True, \
-													'min_height': wallet_height-10, 'max_height': wallet_height-10})
-			transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
-						transfers['pending'] +transfers['failed']
+	for height in heights:
+		height = height[0]
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
+												'in': True, 'pending': True, \
+												'failed': True, 'filter_by_height': True, \
+												'min_height': height, 'max_height': height})
+		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
+					transfers['pending'] +transfers['failed']
 
-			if transfers != []:
-				update_block_status(cur, wallet_height-10, 2)
-			else:
-				update_block_status(cur, wallet_height-10, -1)
+		if transfers != []:
+			update_block_status(cur, height, 2)
+		else:
+			update_block_status(cur, height, -1)
 
-	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (wallet_height-60, ))
-	working_block_status = cur.fetchone()
+	cur.execute('SELECT height FROM mined_blocks WHERE status=2 AND height <= %s', \
+				(wallet_height-60,))
+	heights = cur.fetchall()
 
-	if working_block_status is not None:
-		working_block_status = working_block_status[0]
-		if working_block_status == 2:
-			transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
-													'in': True, 'pending': True, \
-													'failed': True, 'filter_by_height': True, \
-													'min_height': wallet_height-60, 'max_height': wallet_height-60})
-			transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
-						transfers['pending'] +transfers['failed']
+	changed_status_to_3_blocks = []
 
-			if transfers != []:
-				update_block_status(cur, wallet_height-60, 3)
-			else:
-				update_block_status(cur, wallet_height-60, -1)
+	for height in heights:
+		height = height[0]
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
+												'in': True, 'pending': True, \
+												'failed': True, 'filter_by_height': True, \
+												'min_height': height, 'max_height': height})
+		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
+					transfers['pending'] +transfers['failed']
 
-	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (wallet_height, ))
-	working_block_status = cur.fetchone()
+		if transfers != []:
+			update_block_status(cur, height, 3)
+			changed_status_to_3_blocks.append(height)
+		else:
+			update_block_status(cur, height, -1)
 
-	return_value = None
-	if working_block_status is not None:
-		return_value = working_block_status[0]
-
-	return return_value
+	return changed_status_to_3_blocks
 
 def daemon(s_method, d_params=None):
 	d_headers = {'Content-Type': 'application/json'}
@@ -285,14 +281,8 @@ def check_payment_status(cur):
 
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
-def calculate_credit(cur):
-	wallet_height = get_wallet_hight()
-
-	cur.execute('SELECT * FROM mined_blocks WHERE height=%s', (wallet_height-60, ))
-	working_block = cur.fetchone()
-
-	if working_block is not None:
-		height = wallet_height-60
+def calculate_credit(cur, changed_blocks):
+	for height in changed_blocks:
 		valid_shares = valid_shares_between_block(cur, height)
 
 		valid_shares.sort(key=lambda x: int(x[1]))
@@ -317,9 +307,7 @@ def calculate_credit(cur):
 								user_total_valid_share_in_block[i]['credit'])
 
 		message('Block ' + str(height) + ' valid shares calculated')
-
-		return height
-	return None
+		update_block_status(cur, height, 4)
 
 def pay_payments(cur, new_payments):
 	valid_payment_message = False
@@ -374,15 +362,13 @@ try:
 
 	while True:
 
-		message('Block: ' + str(get_wallet_hight))
+		message('Block: ' + str(get_wallet_hight()))
 
 		check_payment_status(CURS)
 
-		get_block_status(CURS)
+		CHANGED_BLOCKS = get_block_status(CURS)
 
-		CALCULATED_BLOCK = calculate_credit(CURS)
-		if CALCULATED_BLOCK is not None:
-			update_block_status(CURS, CALCULATED_BLOCK, 4)
+		calculate_credit(CURS, CHANGED_BLOCKS)
 
 		NEW_PAYMENTS = get_new_payments(CURS)
 
