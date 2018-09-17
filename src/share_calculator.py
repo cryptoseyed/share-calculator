@@ -46,11 +46,10 @@ def error(string):
 	+ Fore.RED + 'Error: ' + Fore.RESET + string)
 
 def connection_init():
-	conn = psycopg2.connect(\
-				user=PSQL_USERNAME, \
-				password=PSQL_PASSWORD, \
-				host="localhost", \
-				port="5432")
+	conn = psycopg2.connect(user=PSQL_USERNAME,
+							password=PSQL_PASSWORD,
+							host="localhost",
+							port="5432")
 	message('Connection created')
 
 	conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
@@ -78,22 +77,22 @@ def database_init(cur, conn):
 	message('Set search_path to wpv1')
 
 def update_block_status(cur, height, status):
-	cur.execute("IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s) \
-				UPDATE mined_blocks SET status = '%s' WHERE height = %s", \
+	cur.execute("""IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
+				UPDATE mined_blocks SET status = '%s' WHERE height = %s""",
 				(height, status, height))
 
 def get_block_status(cur):
 	wallet_height = get_wallet_hight()
 
-	cur.execute('SELECT height FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s', \
+	cur.execute('SELECT height FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s',
 				(wallet_height-10,))
 	heights = cur.fetchall()
 
 	for height in heights:
 		height = height[0]
-		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
-												'in': True, 'pending': True, \
-												'failed': True, 'filter_by_height': True, \
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
+												'in': True, 'pending': True,
+												'failed': True, 'filter_by_height': True,
 												'min_height': height, 'max_height': height})
 		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
 					transfers['pending'] +transfers['failed']
@@ -103,17 +102,24 @@ def get_block_status(cur):
 		else:
 			update_block_status(cur, height, -1)
 
-	cur.execute('SELECT height FROM mined_blocks WHERE status=2 AND height <= %s', \
+	cur.execute('SELECT height FROM mined_blocks WHERE status=3 AND height <= %s',
 				(wallet_height-60,))
 	heights = cur.fetchall()
 
 	changed_status_to_3_blocks = []
 
 	for height in heights:
+		changed_status_to_3_blocks.append(height[0])
+
+	cur.execute('SELECT height FROM mined_blocks WHERE status=2 AND height <= %s',
+				(wallet_height-60,))
+	heights = cur.fetchall()
+
+	for height in heights:
 		height = height[0]
-		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True, \
-												'in': True, 'pending': True, \
-												'failed': True, 'filter_by_height': True, \
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
+												'in': True, 'pending': True,
+												'failed': True, 'filter_by_height': True,
 												'min_height': height, 'max_height': height})
 		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
 					transfers['pending'] +transfers['failed']
@@ -133,11 +139,10 @@ def daemon(s_method, d_params=None):
 	if d_params is not None:
 		d_daemon_input['params'] = d_params
 
-	o_rsp = requests.post(\
-		'http://' + SG_DAEMON_ADDR + '/json_rpc', \
-		data=json.dumps(d_daemon_input), \
-		headers=d_headers, \
-		timeout=60.0)  #Wallet can be fairly slow for large requests
+	o_rsp = requests.post('http://' + SG_DAEMON_ADDR + '/json_rpc',
+							data=json.dumps(d_daemon_input),
+							headers=d_headers,
+							timeout=60.0)  #Wallet can be fairly slow for large requests
 
 	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
 		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
@@ -155,12 +160,11 @@ def wallet_rpc(s_method, d_params=None):
 	if d_params is not None:
 		d_rpc_input['params'] = d_params
 
-	o_rsp = requests.post(\
-		'http://' + SG_WALLET_RPC_ADDR + '/json_rpc', \
-		data=json.dumps(d_rpc_input), \
-		headers=d_headers, \
-		timeout=60.0, #Wallet can be fairly slow for large requests
-		auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
+	o_rsp = requests.post('http://' + SG_WALLET_RPC_ADDR + '/json_rpc',
+							data=json.dumps(d_rpc_input),
+							headers=d_headers,
+							timeout=60.0, #Wallet can be fairly slow for large requests
+							auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
 
 	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
 		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
@@ -182,7 +186,7 @@ def valid_shares_between_block(cur, height):
 	cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height, ))
 	cure_time = cur.fetchone()[0]
 
-	cur.execute('SELECT * FROM valid_shares WHERE time BETWEEN %s AND %s', \
+	cur.execute('SELECT * FROM valid_shares WHERE time BETWEEN %s AND %s',
 					(prev_time + 1, cure_time))
 
 	return cur.fetchall()
@@ -196,11 +200,11 @@ def get_user_wallet(cur, uid):
 	return cur.fetchone()[0]
 
 def record_credit(cur, blk_id, uid, credit):
-	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
+	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)',
 					(blk_id, uid, credit))
 
 def submit_payment(cur, uid, amount, txid, txtime):
-	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)', \
+	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)',
 						(uid, amount, txid, txtime, 'MONITORED'))
 
 def get_balances_and_thresholds(cur):
@@ -303,7 +307,7 @@ def calculate_credit(cur, changed_blocks):
 			user_total_valid_share_in_block[i]['valid_shares'] * \
 			(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
 
-			record_credit(cur, blk_id, user_total_valid_share_in_block[i]['uid'], \
+			record_credit(cur, blk_id, user_total_valid_share_in_block[i]['uid'],
 								user_total_valid_share_in_block[i]['credit'])
 
 		message('Block ' + str(height) + ' valid shares calculated')
@@ -321,7 +325,7 @@ def pay_payments(cur, new_payments):
 
 			user_wallet = get_user_wallet(cur, new_payment[0])
 
-			destinations.append({'amount': new_payment[1], \
+			destinations.append({'amount': new_payment[1],
 								'address': user_wallet})
 
 			if destinations != []:
@@ -335,11 +339,11 @@ def pay_payments(cur, new_payments):
 					transfer_info['transfer'] = {}
 					transfer_info['transfer']['timestamp'] = 1536234479
 				else:
-					json_data = wallet_rpc('transfer', \
+					json_data = wallet_rpc('transfer',
 											{'destinations': destinations, 'payment_id': txid}) # 'get_tx_key': True
 					transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
 
-				submit_payment(cur, new_payment[0], new_payment[1], json_data['tx_hash'], \
+				submit_payment(cur, new_payment[0], new_payment[1], json_data['tx_hash'],
 								transfer_info['transfer']['timestamp'])
 
 				message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
