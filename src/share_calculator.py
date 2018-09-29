@@ -18,7 +18,7 @@ from colorama import init as colorama_init, Fore
 
 from settings import SETTING
 
-3
+
 colorama_init(autoreset=True)
 
 
