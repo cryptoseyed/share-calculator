@@ -18,7 +18,7 @@ from colorama import init as colorama_init, Fore
 
 from settings import SETTING
 
-
+3
 colorama_init(autoreset=True)
 
 
@@ -33,6 +33,8 @@ WALLET_NAME = SETTING['WALLET_NAME']
 TESTING_MODE = SETTING['TESTING_MODE']
 PSQL_USERNAME = SETTING['psqlUser']
 PSQL_PASSWORD = SETTING['psqlPass']
+N = SETTING['N']
+LAST_N = 0
 
 
 def message(string):
@@ -285,12 +287,25 @@ def check_payment_status(cur):
 
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
+def get_last_total_valid_shares(cur, changed_blocks):
+	return_value = 0
+	for block in changed_blocks:
+		return_value += valid_shares_between_block(cur, block)
+	return return_value
+
 def calculate_credit(cur, changed_blocks):
+	last_total_valid_shares = get_last_total_valid_shares(cur, changed_blocks)
+	if int((LAST_N - last_total_valid_shares) / N) < 1:
+		return
+
+	user_credits = []
 	for height in changed_blocks:
+		user_total_valid_share_in_block = []
+
 		valid_shares = valid_shares_between_block(cur, height)
 
 		valid_shares.sort(key=lambda x: int(x[1]))
-		user_total_valid_share_in_block = []
+
 		total_valid_share_in_block = 0
 
 		for elt, items in groupby(valid_shares, itemgetter(1)):
@@ -298,20 +313,31 @@ def calculate_credit(cur, changed_blocks):
 			for i in items:
 				user_valid_shares_count += int(i[3])
 			total_valid_share_in_block += user_valid_shares_count
-			user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
+			temp = next((item for item in user_total_valid_share_in_block if item['uid'] == elt), None)
 
-		blk_id = get_block_id(cur, height)
+			if temp is None:
+				user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
+			else:
+				temp['valid_shares'] += user_valid_shares_count
 
 		for i, _ in enumerate(user_total_valid_share_in_block):
-			user_total_valid_share_in_block[i]['credit'] = \
-			user_total_valid_share_in_block[i]['valid_shares'] * \
+			credit_temp = user_total_valid_share_in_block[i]['valid_shares'] * \
 			(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
 
-			record_credit(cur, blk_id, user_total_valid_share_in_block[i]['uid'],
-								user_total_valid_share_in_block[i]['credit'])
+			temp = next((item for item in user_credits if item['uid'] == elt), None)
+
+			if temp == None:
+				user_credits.append({'uid': user_total_valid_share_in_block[i]['uid'], 'credit': credit_temp})
+			else:
+				temp['credit'] += credit_temp
 
 		message('Block ' + str(height) + ' valid shares calculated')
 		update_block_status(cur, height, 4)
+
+	blk_id = get_block_id(cur, height)
+	for user in user_credits:
+		record_credit(cur, blk_id, user['uid'],
+								user['credit'])
 
 def pay_payments(cur, new_payments):
 	valid_payment_message = False
