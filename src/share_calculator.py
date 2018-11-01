@@ -34,7 +34,16 @@ TESTING_MODE = SETTING['TESTING_MODE']
 PSQL_USERNAME = SETTING['psqlUser']
 PSQL_PASSWORD = SETTING['psqlPass']
 N = SETTING['N']
-LAST_N = 0
+
+class E_V_S:
+	def __init__(self):
+		self.expexted_valid_shares = 0
+	def get(self):
+		return self.expexted_valid_shares
+	def add(self):
+		self.expexted_valid_shares += N
+
+EXPECTED_VALID_SHARES = E_V_S()
 
 
 def message(string):
@@ -181,9 +190,7 @@ def valid_shares_between_block(cur, height):
 	prev_time = 0
 	if height != 0:
 		cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height - 1, ))
-		prev_time = cur.fetchone()
-
-		prev_time = prev_time[0]
+		prev_time = cur.fetchone()[0]
 
 	cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height, ))
 	cure_time = cur.fetchone()[0]
@@ -293,51 +300,98 @@ def get_last_total_valid_shares(cur, changed_blocks):
 		return_value += valid_shares_between_block(cur, block)
 	return return_value
 
-def calculate_credit(cur, changed_blocks):
-	last_total_valid_shares = get_last_total_valid_shares(cur, changed_blocks)
-	if int((LAST_N - last_total_valid_shares) / N) < 1:
-		return
+def make_valid_ranges(cur, block_times):
+	ret_val = []
+	for item in block_times:
+		cur.execute("""SELECT
+							MAX(time) + 1 AS lower_bound
+						FROM mined_blocks
+						WHERE time < %s;""", (item[0],))
+		result = cur.fetchone()
+		if result[0] == None:
+			ret_val.append([{'lower': 0, 'upper': item[0]}])
+		else:
+			ret_val.append([{'lower': result[0], 'upper': item[0]}])
+	return ret_val
 
-	user_credits = []
-	for height in changed_blocks:
-		user_total_valid_share_in_block = []
+def get_valid_timestamps_to_pay_credit(cur):
+	cur.execute("""SELECT
+					time
+					FROM mined_blocks
+					WHERE status = 3;""")
+	result = cur.fetchall()
+	if result == []:
+		return []
 
-		valid_shares = valid_shares_between_block(cur, height)
+	return make_valid_ranges(cur, result)
 
-		valid_shares.sort(key=lambda x: int(x[1]))
+def check_expected_valid_shares(cur, ranges):
+	count = 0
+	for r in ranges:
+		cur.execute("""SELECT
+							SUM(count) OVER (ORDER BY time ASC) AS total_count
+						FROM valid_shares
+						WHERE time BETWEEN %s AND %s;""", (r['lower'], r['upper']))
+		result = cur.fetchone()
+		if result[0] is not None:
+			count += result[0]
 
-		total_valid_share_in_block = 0
+	if count < N:
+		return False
+	EXPECTED_VALID_SHARES.add()
+	return True
 
-		for elt, items in groupby(valid_shares, itemgetter(1)):
-			user_valid_shares_count = 0
-			for i in items:
-				user_valid_shares_count += int(i[3])
-			total_valid_share_in_block += user_valid_shares_count
-			temp = next((item for item in user_total_valid_share_in_block if item['uid'] == elt), None)
+def calculate_credit(cur):
+	ranges = get_valid_timestamps_to_pay_credit(cur)
+	if check_expected_valid_shares(cur, ranges):
+		pass # Calculate payments
 
-			if temp is None:
-				user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
-			else:
-				temp['valid_shares'] += user_valid_shares_count
+	return
 
-		for i, _ in enumerate(user_total_valid_share_in_block):
-			credit_temp = user_total_valid_share_in_block[i]['valid_shares'] * \
-			(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
+	# last_total_valid_shares = get_last_total_valid_shares(cur, changed_blocks)
+	# if int(( last_total_valid_shares) / N) < 1:
+	# 	return
 
-			temp = next((item for item in user_credits if item['uid'] == elt), None)
+	# user_credits = []
+	# for height in changed_blocks:
+	# 	user_total_valid_share_in_block = []
 
-			if temp == None:
-				user_credits.append({'uid': user_total_valid_share_in_block[i]['uid'], 'credit': credit_temp})
-			else:
-				temp['credit'] += credit_temp
+	# 	valid_shares = valid_shares_between_block(cur, height)
 
-		message('Block ' + str(height) + ' valid shares calculated')
-		update_block_status(cur, height, 4)
+	# 	valid_shares.sort(key=lambda x: int(x[1]))
 
-	blk_id = get_block_id(cur, height)
-	for user in user_credits:
-		record_credit(cur, blk_id, user['uid'],
-								user['credit'])
+	# 	total_valid_share_in_block = 0
+
+	# 	for elt, items in groupby(valid_shares, itemgetter(1)):
+	# 		user_valid_shares_count = 0
+	# 		for i in items:
+	# 			user_valid_shares_count += int(i[3])
+	# 		total_valid_share_in_block += user_valid_shares_count
+	# 		temp = next((item for item in user_total_valid_share_in_block if item['uid'] == elt), None)
+
+	# 		if temp is None:
+	# 			user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
+	# 		else:
+	# 			temp['valid_shares'] += user_valid_shares_count
+
+	# 	for i, _ in enumerate(user_total_valid_share_in_block):
+	# 		credit_temp = user_total_valid_share_in_block[i]['valid_shares'] * \
+	# 		(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
+
+	# 		temp = next((item for item in user_credits if item['uid'] == elt), None)
+
+	# 		if temp == None:
+	# 			user_credits.append({'uid': user_total_valid_share_in_block[i]['uid'], 'credit': credit_temp})
+	# 		else:
+	# 			temp['credit'] += credit_temp
+
+	# 	message('Block ' + str(height) + ' valid shares calculated')
+	# 	update_block_status(cur, height, 4)
+
+	# blk_id = get_block_id(cur, height)
+	# for user in user_credits:
+	# 	record_credit(cur, blk_id, user['uid'],
+	# 							user['credit'])
 
 def pay_payments(cur, new_payments):
 	valid_payment_message = False
