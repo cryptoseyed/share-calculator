@@ -314,36 +314,53 @@ def make_valid_ranges(cur, block_times):
 			ret_val.append([{'lower': result[0], 'upper': item[0]}])
 	return ret_val
 
-def get_valid_timestamps_to_pay_credit(cur):
+def get_valid_blocks_to_pay_credit(cur):
 	cur.execute("""SELECT
-					time
+					blk_id
 					FROM mined_blocks
 					WHERE status = 3;""")
 	result = cur.fetchall()
 	if result == []:
 		return []
 
-	return make_valid_ranges(cur, result)
+	return result
 
-def check_expected_valid_shares(cur, ranges):
+def block_timestamp(cur, blk_id):
+	cur.execute("""SELECT time
+					FROM mined_blocks
+					WHERE blk_id=%s""", (blk_id,))
+	upper_result = cur.fetchone()
+
+	cur.execute("""SELECT time
+					FROM mined_blocks
+					WHERE blk_id=%s""", (blk_id-1,))
+	lower_result = cur.fetchone()
+
+	result = {'upper': upper_result[0], 'lower': 0}
+	if lower_result != None:
+		result['lower'] = lower_result[0]
+
+	return result
+
+def check_expected_valid_shares(cur, blocks):
 	count = 0
-	for r in ranges:
-		cur.execute("""SELECT
-							SUM(count) OVER (ORDER BY time ASC) AS total_count
+	for b in blocks:
+		timestamp = block_timestamp(cur, b)
+		cur.execute("""SELECT COALESCE(sum(COUNT), 0)
 						FROM valid_shares
-						WHERE time BETWEEN %s AND %s;""", (r['lower'], r['upper']))
+						WHERE TIME BETWEEN %s AND %s;""", (timestamp['lower'], timestamp['upper']))
 		result = cur.fetchone()
-		if result[0] is not None:
-			count += result[0]
 
-	if count < N:
-		return False
-	EXPECTED_VALID_SHARES.add()
-	return True
+		count += result[0]
+
+	retval = False
+	if count >= N:
+		retval = True
+	return retval
 
 def calculate_credit(cur):
-	ranges = get_valid_timestamps_to_pay_credit(cur)
-	if check_expected_valid_shares(cur, ranges):
+	blocks = get_valid_blocks_to_pay_credit(cur)
+	if check_expected_valid_shares(cur, blocks):
 		pass # Calculate payments
 
 	return
@@ -440,7 +457,7 @@ try:
 	CURS = None
 	CONN, CURS = connection_init()
 
-	database_init(CURS, CONN)
+	database_init(CURS, CONN);input();
 
 	wallet_rpc('open_wallet', {'filename': WALLET_NAME, 'password': ''})
 
@@ -452,7 +469,7 @@ try:
 
 		CHANGED_BLOCKS = get_block_status(CURS)
 
-		calculate_credit(CURS, CHANGED_BLOCKS)
+		# calculate_credit(CURS, CHANGED_BLOCKS)
 
 		NEW_PAYMENTS = get_new_payments(CURS)
 
