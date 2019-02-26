@@ -2,6 +2,7 @@ import time
 import json
 import random
 import requests
+import csv
 
 from settings import SETTING
 
@@ -26,14 +27,18 @@ str(JSON_DATA['result']['block_header']['timestamp']) + ', 2);\n')
 
 MY_FILE.write('COMMIT;\n')
 
-for i in range(1000):
-	RID = random.randint(1, 5)
-	UID = random.randint(1, 3)
-	TIME = random.randint(1527131460, 1527181566)
-	COUNT = random.randint(1, 3000)
-	MY_FILE.write('INSERT INTO wpv1.valid_shares (rid, uid, time, count) VALUES (' \
-+ str(RID) + ', ' + str(UID) + ', ' + str(TIME) + ', ' + str(COUNT) + ');\n')
-	print('Random share No. ' + str(i+1) + ' done')
+with open('shares.csv', 'w') as share_file:
+	share_writer = csv.writer(share_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+	share_writer.writerow(['rid', 'uid', 'time', 'count'])
+	for i in range(1000):
+		RID = random.randint(1, 5)
+		UID = random.randint(1, 3)
+		TIME = random.randint(1527131460, 1527181566)
+		COUNT = random.randint(1, 3000)
+		MY_FILE.write('INSERT INTO wpv1.valid_shares (rid, uid, time, count) VALUES (' \
+	+ str(RID) + ', ' + str(UID) + ', ' + str(TIME) + ', ' + str(COUNT) + ');\n')
+		share_writer.writerow([RID, UID, TIME, COUNT])
+		print('Random share No. ' + str(i+1) + ' done')
 
 MY_FILE.write('COMMIT;\n')
 

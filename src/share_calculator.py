@@ -5,6 +5,7 @@ import time
 import json
 from os import urandom
 from binascii import hexlify
+from pprint import pprint
 
 import requests
 
@@ -36,11 +37,17 @@ def message(string):
 	string = str(string)
 	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
 	+ Fore.GREEN + 'Message: ' + Fore.RESET + string)
+	with open('log.txt', 'a+') as f:
+		f.write('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
+	+ 'Message: ' + string + '\n')
 
 def error(string):
 	string = str(string)
 	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
 	+ Fore.RED + 'Error: ' + Fore.RESET + string)
+	with open('log.txt', 'a+') as f:
+		f.write('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
+	+ 'Error: ' + string + '\n')
 
 def connection_init():
 	conn = psycopg2.connect(user=PSQL_USERNAME,
@@ -74,8 +81,13 @@ def database_init(cur, conn):
 	message('Set search_path to wpv1')
 
 def update_block_status(cur, height, status):
-	cur.execute("""IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
-				UPDATE mined_blocks SET status = '%s' WHERE height = %s""",
+	cur.execute("""DO $$
+					BEGIN
+						IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
+						THEN UPDATE mined_blocks SET status = '%s' WHERE height = %s;
+						END IF;
+					END
+					$$ ;""",
 				(height, status, height))
 
 def get_block_status(cur):
@@ -118,8 +130,18 @@ def get_block_status(cur):
 												'in': True, 'pending': True,
 												'failed': True, 'filter_by_height': True,
 												'min_height': height, 'max_height': height})
-		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
-					transfers['pending'] +transfers['failed']
+		temp = []
+		if 'pool' in transfers:
+			temp += transfers['pool']
+		if 'out' in transfers:
+			temp += transfers['out']
+		if 'in' in transfers:
+			temp += transfers['in']
+		if 'pending' in transfers:
+			temp += transfers['pending']
+		if 'failed' in transfers:
+			temp += transfers['failed']
+		transfers = temp
 
 		if transfers != []:
 			update_block_status(cur, height, 3)
@@ -208,7 +230,12 @@ def check_payment_status(cur):
 	txids = cur.fetchall()
 
 	transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True})
-	transfers = transfers['pool'] + transfers['out']
+	temp = []
+	if 'out' in transfers:
+		temp += transfers['out']
+	if 'pool' in transfers:
+		temp += transfers['pool']
+	transfers = temp
 
 	for txid in txids:
 		txid = txid[0]
@@ -275,10 +302,9 @@ def get_max_block_id(cur):
 	return cur.fetchone()[0]
 
 def calculate_credit(cur):
-	# Credits must calculate here and then pay_payments should do its work there
 	blk_id = get_max_block_id(cur)
 
-	N_shares = make_N_shares(cur)
+	N_shares = [] # make_N_shares(cur)
 
 	for uid in N_shares:
 		record_credit(cur, blk_id, uid, N_shares[uid])

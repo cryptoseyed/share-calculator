@@ -111,3 +111,9 @@ settings.py
 
 # Data
 DATA.sql
+
+# CSV
+*.csv
+
+# Log
+log.txt
