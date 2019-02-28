@@ -19,7 +19,7 @@ from settings import SETTING
 
 colorama_init(autoreset=True)
 
-
+# Read settings from settings file
 SLEEP_TIME = SETTING['SLEEP_TIME']
 BLOCK_REWARD = SETTING['BLOCK_REWARD']
 POOL_FEE = SETTING['POOL_FEE'] # In %
@@ -34,6 +34,7 @@ N = SETTING['N']
 LAST_BLOCK = 0
 
 def message(string):
+	"""Print out messages"""
 	string = str(string)
 	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
 	+ Fore.GREEN + 'Message: ' + Fore.RESET + string)
@@ -42,6 +43,7 @@ def message(string):
 	+ 'Message: ' + string + '\n')
 
 def error(string):
+	"""Print out error"""
 	string = str(string)
 	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
 	+ Fore.RED + 'Error: ' + Fore.RESET + string)
@@ -50,6 +52,7 @@ def error(string):
 	+ 'Error: ' + string + '\n')
 
 def connection_init():
+	"""Create database connection"""
 	conn = psycopg2.connect(user=PSQL_USERNAME,
 							password=PSQL_PASSWORD,
 							host="localhost",
@@ -61,26 +64,37 @@ def connection_init():
 	message('Cursor created')
 	return conn, cur
 
+def connection_destroy(conn, cur):
+	"""Destroy database connection"""
+	cur.close()
+	conn.close()
+
 def database_init(cur, conn):
+	"""Drop existing schema and types and recreate them"""
+	# Drop existing schema and type
 	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE IF EXISTS \"status_setting\";')
 	conn.commit()
 	message('Schema wpv1 droped')
 
+	# Recreate schema and types
 	with open('CREATE_DB.sql', 'r') as my_file:
 		cur.execute(my_file.read())
 	conn.commit()
 	message('Schema wpv1 created')
 
+	# Insert example data
 	with open('DATA.sql', 'r') as my_file:
 		cur.execute(my_file.read())
 	conn.commit()
 	message('Data added')
 
+	# Set search path that I don't every time specify schema dot table
 	cur.execute('SET search_path TO wpv1')
 	conn.commit()
 	message('Set search_path to wpv1')
 
-def update_block_status(cur, height, status):
+def change_block_status(cur, height, status):
+	"""Change a block status to given status"""
 	cur.execute("""DO $$
 					BEGIN
 						IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
@@ -90,42 +104,19 @@ def update_block_status(cur, height, status):
 					$$ ;""",
 				(height, status, height))
 
-def get_block_status(cur):
+def update_block_status(cur):
+	"""Update blocks statuses"""
 	wallet_height = get_wallet_hight()
 
+	# Get submit failed(status-0) and submit OK(status-1) blocks that are in a safe distance(10)
 	cur.execute('SELECT height FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s',
 				(wallet_height-10,))
 	heights = cur.fetchall()
 
+	# For each status-0 or status-1 block
 	for height in heights:
 		height = height[0]
-		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
-												'in': True, 'pending': True,
-												'failed': True, 'filter_by_height': True,
-												'min_height': height, 'max_height': height})
-		transfers = transfers['pool'] + transfers['out'] + transfers['in'] + \
-					transfers['pending'] +transfers['failed']
-
-		if transfers != []:
-			update_block_status(cur, height, 2)
-		else:
-			update_block_status(cur, height, -1)
-
-	cur.execute('SELECT height FROM mined_blocks WHERE status=3 AND height <= %s',
-				(wallet_height-60,))
-	heights = cur.fetchall()
-
-	changed_status_to_3_blocks = []
-
-	for height in heights:
-		changed_status_to_3_blocks.append(height[0])
-
-	cur.execute('SELECT height FROM mined_blocks WHERE status=2 AND height <= %s',
-				(wallet_height-60,))
-	heights = cur.fetchall()
-
-	for height in heights:
-		height = height[0]
+		# Get its transactions
 		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
 												'in': True, 'pending': True,
 												'failed': True, 'filter_by_height': True,
@@ -143,15 +134,59 @@ def get_block_status(cur):
 			temp += transfers['failed']
 		transfers = temp
 
+		# If there is no transaction update block status to -1(Confirmed orphan) else to 2(Transaction seen)
 		if transfers != []:
-			update_block_status(cur, height, 3)
-			changed_status_to_3_blocks.append(height)
+			change_block_status(cur, height, 2)
 		else:
-			update_block_status(cur, height, -1)
+			change_block_status(cur, height, -1)
 
-	return changed_status_to_3_blocks
+	# Get status-3 blocks that are in a safe distance(60 blocks)
+	cur.execute('SELECT height FROM mined_blocks WHERE status=3 AND height <= %s',
+				(wallet_height-60,)) # Q: It should be wallet_height or wallet_height-60?
+	heights = cur.fetchall()
+
+	status_3_blocks = []
+
+	for height in heights:
+		status_3_blocks.append(height[0])
+
+	# Get status-2 blocks that are in safe distance
+	cur.execute('SELECT height FROM mined_blocks WHERE status=2 AND height <= %s',
+				(wallet_height-60,))
+	heights = cur.fetchall()
+
+	# For each status-2 block
+	for height in heights:
+		height = height[0]
+		# Q: Is it necessary to get block-2 tansactions?
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
+												'in': True, 'pending': True,
+												'failed': True, 'filter_by_height': True,
+												'min_height': height, 'max_height': height})
+		temp = []
+		if 'pool' in transfers:
+			temp += transfers['pool']
+		if 'out' in transfers:
+			temp += transfers['out']
+		if 'in' in transfers:
+			temp += transfers['in']
+		if 'pending' in transfers:
+			temp += transfers['pending']
+		if 'failed' in transfers:
+			temp += transfers['failed']
+		transfers = temp
+
+		# Change block status-2 blocks status's to 3
+		if transfers != []:
+			change_block_status(cur, height, 3)
+			status_3_blocks.append(height)
+		else:
+			change_block_status(cur, height, -1)
+
+	return status_3_blocks
 
 def wallet_rpc(s_method, d_params=None):
+	"""Call wallet RPC"""
 	d_headers = {'Content-Type': 'application/json'}
 	d_rpc_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
 
@@ -174,18 +209,22 @@ def wallet_rpc(s_method, d_params=None):
 	return d_jsn['result']
 
 def get_user_wallet(cur, uid):
+	"""Get users wallet address"""
 	cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
 	return cur.fetchone()[0]
 
 def record_credit(cur, blk_id, uid, credit):
+	"""Record calculated credit for a user"""
 	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)',
 					(blk_id, uid, credit))
 
 def submit_payment(cur, uid, amount, txid, txtime):
+	"""Submit payed payment"""
 	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)',
 						(uid, amount, txid, txtime, 'MONITORED'))
 
 def get_balances_and_thresholds(cur):
+	"""Get users sum of credits, sum of payment and threshold"""
 	cur.execute("""SELECT
 						uid,
 						creSum,
@@ -216,19 +255,24 @@ def get_balances_and_thresholds(cur):
 	return_value = []
 
 	for result in results:
+		# Calculate diffrence of sum of credits and sum of payments for each user
 		return_value.append([result[0], result[1] - result[2], result[3]])
 
 	return return_value
 
 def update_status(cur, txid, status):
+	"""Change payment status to SUCCESS or FAILED or MONITORED"""
 	cur.execute("UPDATE payments SET status = '%s' WHERE txid = %s", (status, txid))
 
-def check_payment_status(cur):
+def update_payment_status(cur):
+	"""Update MONITORED payments to SUCCESS or FAILED"""
 	current_block_height = get_wallet_hight()
 
+	# Get MONITORED payments
 	cur.execute('SELECT txid FROM payments WHERE status = \'MONITORED\'')
 	txids = cur.fetchall()
 
+	# Get outgoing and daemon's transaction pool transfers
 	transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True})
 	temp = []
 	if 'out' in transfers:
@@ -237,6 +281,7 @@ def check_payment_status(cur):
 		temp += transfers['pool']
 	transfers = temp
 
+	# For each transaction
 	for txid in txids:
 		txid = txid[0]
 		is_in_list = False
@@ -248,8 +293,10 @@ def check_payment_status(cur):
 				break
 
 		if tx_height != 0:
+			# If it is in a safe distance
 			if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
 
+				# If transaction is in list it successed else it failed
 				if is_in_list is True:
 					update_status(cur, txid, 'SUCCESS')
 				else:
@@ -258,6 +305,7 @@ def check_payment_status(cur):
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
 def make_N_shares(cur):
+	"""Find last N shares based on PPLNS system"""
 	flag = False
 	limiter = 1
 	while flag is False:
@@ -274,13 +322,13 @@ def make_N_shares(cur):
 			flag = True
 		else:
 			limiter += 1
-	
-	cur.execute("""SELECT uid, SUM(count) 
+
+	cur.execute("""SELECT uid, SUM(count), MAX(time) as T
 					FROM
-						(SELECT uid, count 
+						(SELECT uid, count, time
 						FROM wpv1.valid_shares 
 						ORDER BY TIME DESC LIMIT %s) AS temp 
-					GROUP BY uid""")
+					GROUP BY uid ORDER BY T ASC""", (limiter, ))
 	
 	result = cur.fetchall()
 
@@ -290,7 +338,7 @@ def make_N_shares(cur):
 
 	for i in result:
 		if counter + i[1] > N:
-			retval[str(i[0])] = (counter + i[1]) - N
+			retval[str(i[0])] = N - counter # i[1] - ((counter + i[1]) - N)
 		else:
 			retval[i[0]] = i[1]
 			counter += i[1]
@@ -298,18 +346,23 @@ def make_N_shares(cur):
 	return retval
 
 def get_max_block_id(cur):
+	"""Get latest mined block block ID"""
 	cur.execute("""SELECT MAX(blk_id) FROM mined_blocks""")
 	return cur.fetchone()[0]
 
 def calculate_credit(cur):
+	"""Calculate credits using PPLNS system"""
 	blk_id = get_max_block_id(cur)
 
-	N_shares = [] # make_N_shares(cur)
+	# Get payment for each miner
+	N_shares = make_N_shares(cur)
 
+	# Record calculated credit with PPLNS system for each miner
 	for uid in N_shares:
 		record_credit(cur, blk_id, uid, N_shares[uid])
 
 def pay_payments(cur):
+	"""Pay payments base on credits and paid payments"""
 	destinations = []
 	messages = {}
 	new_payments = {}
@@ -355,9 +408,11 @@ def pay_payments(cur):
 		message('Payments completed')
 
 def get_wallet_hight():
+	"""Get the wallet's current block height"""
 	return wallet_rpc('getheight')['height']
 
 def wait_until_new_block(cur):
+	"""Wait until new block mined"""
 	result = LAST_BLOCK
 	while result == LAST_BLOCK:
 		cur.execute("""SELECT MAX(blk_id) FROM mined_blocks""")
@@ -380,9 +435,9 @@ try:
 
 		message('Block: ' + str(get_wallet_hight()))
 
-		check_payment_status(CURS)
+		update_payment_status(CURS)
 
-		get_block_status(CURS)
+		update_block_status(CURS)
 
 		calculate_credit(CURS)
 
@@ -400,3 +455,6 @@ except KeyboardInterrupt:
 except RuntimeError as my_exception:
 	error(my_exception)
 	traceback.print_exception(*sys.exc_info())
+
+else:
+	connection_destroy(CONN, CURS)

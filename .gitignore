@@ -117,3 +117,12 @@ DATA.sql
 
 # Log
 log.txt
+
+# Document
+_build
+_static
+_templates
+conf.py
+index.rst
+make.bat
+Makefile
