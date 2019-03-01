@@ -306,43 +306,65 @@ def update_payment_status(cur):
 
 def make_N_shares(cur):
 	"""Find last N shares based on PPLNS system"""
-	flag = False
-	limiter = 1
-	while flag is False:
-		cur.execute("""SELECT COALESCE(SUM(temp2.sum), 0) AS sum
-						FROM
-							(SELECT uid, SUM(count) 
-							FROM
-								(SELECT uid, count 
-								FROM wpv1.valid_shares 
-								ORDER BY TIME DESC LIMIT %s) AS temp 
-							GROUP BY uid) AS temp2""", (limiter,))
-		result = cur.fetchone()
-		if result[0] >= N:
-			flag = True
-		else:
-			limiter += 1
-
-	cur.execute("""SELECT uid, SUM(count), MAX(time) as T
-					FROM
-						(SELECT uid, count, time
-						FROM wpv1.valid_shares 
-						ORDER BY TIME DESC LIMIT %s) AS temp 
-					GROUP BY uid ORDER BY T ASC""", (limiter, ))
-	
-	result = cur.fetchall()
-
-	counter = 0
-
+	cur.execute("""SELECT height, time 
+					FROM wpv1.mined_blocks 
+					WHERE status=3 
+					ORDER BY time""")
+	times = cur.fetchall()
+	temp = []
+	for t in times:
+		temp.append([t[0], t[1]])
+	times = temp
 	retval = {}
+	for t in times:
+		flag = False
+		limiter = 1
+		while flag is False:
+			cur.execute("""SELECT COALESCE(SUM(temp2.sum), 0) AS sum
+							FROM
+								(SELECT uid, SUM(count) 
+								FROM
+									(SELECT uid, count 
+									FROM wpv1.valid_shares 
+									WHERE time <= %s
+									ORDER BY TIME DESC LIMIT %s) AS temp 
+								GROUP BY uid) AS temp2""", (t[1], limiter))
+			result = cur.fetchone()
 
-	for i in result:
-		if counter + i[1] > N:
-			retval[str(i[0])] = N - counter # i[1] - ((counter + i[1]) - N)
-		else:
-			retval[i[0]] = i[1]
-			counter += i[1]
+			if result[0] >= N:
+				flag = True
+			elif result[0] == 0:
+				limiter = 0
+				break
+			else:
+				limiter += 1
+
+		cur.execute("""SELECT uid, count
+						FROM wpv1.valid_shares 
+						WHERE time <= %s
+						ORDER BY TIME DESC LIMIT %s""", (t[1], limiter))
 	
+		result = cur.fetchall()
+
+		counter = 0
+
+		retval[t[0]] = {}
+		for i in result:
+			if str(i[0]) not in retval[t[0]]:
+				retval[t[0]][str(i[0])] = 0
+			if counter + i[1] > N:
+				retval[t[0]][str(i[0])] += N - counter # i[1] - ((counter + i[1]) - N)
+			else:
+				retval[t[0]][str(i[0])] += i[1]
+				counter += i[1]
+
+		for k in retval[t[0]]:
+			retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/N))*(1-(POOL_FEE/100)))
+			message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
+					+ ' for user ' + k + '.')
+
+		message('Credits for block ' + str(t[0]) + ' calculated.')
+
 	return retval
 
 def get_max_block_id(cur):
@@ -350,16 +372,23 @@ def get_max_block_id(cur):
 	cur.execute("""SELECT MAX(blk_id) FROM mined_blocks""")
 	return cur.fetchone()[0]
 
+def get_block_id(cur, height):
+	"""Get block id of height"""
+	cur.execute("""SELECT blk_id FROM mined_blocks WHERE height=%s""", (height,))
+	return cur.fetchone()[0]
+
 def calculate_credit(cur):
 	"""Calculate credits using PPLNS system"""
-	blk_id = get_max_block_id(cur)
 
 	# Get payment for each miner
 	N_shares = make_N_shares(cur)
 
 	# Record calculated credit with PPLNS system for each miner
-	for uid in N_shares:
-		record_credit(cur, blk_id, uid, N_shares[uid])
+	for height in N_shares:
+		for uid in N_shares[height]:
+			blk_id = get_block_id(cur, height)
+			record_credit(cur, blk_id, uid, N_shares[height][uid])
+		change_block_status(cur, height, 4)
 
 def pay_payments(cur):
 	"""Pay payments base on credits and paid payments"""
@@ -371,12 +400,12 @@ def pay_payments(cur):
 
 	for i in user_payment_info:
 		if i[1] >= i[2]:
-			new_payments[i[0]] = i[1]
+			new_payments[i[0]] = int(i[1])
 
 	for uid in new_payments:
 		user_wallet = get_user_wallet(cur, uid)
 
-		amount = (BLOCK_REWARD*(new_payments[uid]/N))*(1-(POOL_FEE/100))
+		amount = new_payments[uid]
 		destinations.append({'amount': amount,
 								'address': user_wallet})
 		messages[uid] = {'amount': amount, 'address': user_wallet}
@@ -403,7 +432,7 @@ def pay_payments(cur):
 						transfer_info['transfer']['timestamp'])
 
 			message('Pay ' + str(format(int(messages[uid]['amount'])/1000000000, '.9f')) + \
-					' to ' + str(messages[uid]['address']))
+					' to ' + str(messages[uid]['address']) + ' for user ' + str(uid) + '.')
 
 		message('Payments completed')
 
@@ -413,14 +442,15 @@ def get_wallet_hight():
 
 def wait_until_new_block(cur):
 	"""Wait until new block mined"""
+	global LAST_BLOCK
 	result = LAST_BLOCK
 	while result == LAST_BLOCK:
 		cur.execute("""SELECT MAX(blk_id) FROM mined_blocks""")
-		result = cur.fetchone[0]
+		result = cur.fetchone()[0]
 
 		time.sleep(SLEEP_TIME/2)
 
-	result = LAST_BLOCK
+	LAST_BLOCK = result
 
 try:
 	CONN = None
