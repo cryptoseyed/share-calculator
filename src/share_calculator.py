@@ -25,6 +25,7 @@ BLOCK_REWARD = SETTING['BLOCK_REWARD']
 POOL_FEE = SETTING['POOL_FEE'] # In %
 SG_WALLET_RPC_ADDR = SETTING['SG_WALLET_RPC_ADDR_TESTNET']
 TG_WALLET_RPC_AUTH = SETTING['TG_WALLET_RPC_AUTH_TESTNET']
+SG_DAEMON_ADDR = SETTING['SG_DAEMON_ADDR_TESTNET']
 CHANGE_STATUS_TO_SUCCESS_LIMIT = SETTING['CHANGE_STATUS_TO_SUCCESS_LIMIT']
 WALLET_NAME = SETTING['WALLET_NAME']
 TESTING_MODE = SETTING['TESTING_MODE']
@@ -208,6 +209,27 @@ def wallet_rpc(s_method, d_params=None):
 
 	return d_jsn['result']
 
+def daemon_rpc(s_method, d_params=None):
+	d_headers = {'Content-Type': 'application/json'}
+	d_daemon_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
+
+	if d_params is not None:
+		d_daemon_input['params'] = d_params
+
+	o_rsp = requests.post('http://' + SG_DAEMON_ADDR + '/json_rpc',
+							data=json.dumps(d_daemon_input),
+							headers=d_headers,
+							timeout=60.0)  #Wallet can be fairly slow for large requests
+
+	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
+		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
+
+	d_jsn = o_rsp.json()
+	if 'error' in d_jsn:
+		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+
+	return d_jsn['result']
+
 def get_user_wallet(cur, uid):
 	"""Get users wallet address"""
 	cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
@@ -313,7 +335,9 @@ def make_N_shares(cur):
 	times = cur.fetchall()
 	temp = []
 	for t in times:
-		temp.append([t[0], t[1]])
+		block_temp = [t[0], t[1]]
+		block_temp.append(daemon_rpc('get_block', {'height': t[0]})['block_header']['difficulty']*2)
+		temp.append(block_temp)
 	times = temp
 	retval = {}
 	for t in times:
@@ -331,7 +355,7 @@ def make_N_shares(cur):
 								GROUP BY uid) AS temp2""", (t[1], limiter))
 			result = cur.fetchone()
 
-			if result[0] >= N:
+			if result[0] >= t[2]:
 				flag = True
 			elif result[0] == 0:
 				limiter = 0

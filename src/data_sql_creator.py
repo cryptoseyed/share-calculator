@@ -12,7 +12,7 @@ with open('blocks.csv', 'w') as block_file:
 	share_writer = csv.writer(block_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 	share_writer.writerow(['height', 'difficulty', 'timestamp'])
 	for WORKING_HIGHT in range(120000, 120201):
-		time.sleep(0.1)
+		time.sleep(0.2)
 
 		HEADERS = {'Content-Type': 'application/json',}
 		DATA = '{"jsonrpc":"2.0","id":"0","method":\
@@ -40,7 +40,7 @@ with open('shares.csv', 'w') as share_file:
 		RID = random.randint(1, 5)
 		UID = random.randint(1, 3)
 		TIME = random.randint(1527131460, 1527181566)
-		COUNT = random.randint(1, 3000)
+		COUNT = random.randint(20000, 50000)
 		MY_FILE.write('INSERT INTO wpv1.valid_shares (rid, uid, time, count) VALUES (' \
 	+ str(RID) + ', ' + str(UID) + ', ' + str(TIME) + ', ' + str(COUNT) + ');\n')
 		share_writer.writerow([RID, UID, TIME, COUNT])
