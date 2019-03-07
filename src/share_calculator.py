@@ -376,14 +376,14 @@ def make_N_shares(cur):
 		for i in result:
 			if str(i[0]) not in retval[t[0]]:
 				retval[t[0]][str(i[0])] = 0
-			if counter + i[1] > N:
-				retval[t[0]][str(i[0])] += N - counter # i[1] - ((counter + i[1]) - N)
+			if counter + i[1] > t[2]:
+				retval[t[0]][str(i[0])] += t[2] - counter # i[1] - ((counter + i[1]) - N)
 			else:
 				retval[t[0]][str(i[0])] += i[1]
 				counter += i[1]
 
 		for k in retval[t[0]]:
-			retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/N))*(1-(POOL_FEE/100)))
+			retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/t[2]))*(1-(POOL_FEE/100)))
 			message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
 					+ ' for user ' + k + '.')
 
