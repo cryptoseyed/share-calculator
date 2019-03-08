@@ -110,13 +110,13 @@ def update_block_status(cur):
 	wallet_height = get_wallet_hight()
 
 	# Get submit failed(status-0) and submit OK(status-1) blocks that are in a safe distance(10)
-	cur.execute('SELECT height FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s',
+	cur.execute('SELECT height, txid FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s',
 				(wallet_height-10,))
-	heights = cur.fetchall()
+	blocks = cur.fetchall()
 
 	# For each status-0 or status-1 block
-	for height in heights:
-		height = height[0]
+	for block in blocks:
+		height = block[0]
 		# Get its transactions
 		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
 												'in': True, 'pending': True,
@@ -135,9 +135,8 @@ def update_block_status(cur):
 			temp += transfers['failed']
 		transfers = temp
 
-		# Get block txid
-		cur.execute('SELECT txid FROM mined_blocks WHERE height=%s', (height,))
-		block_txid = cur.fetchone()[0]
+		# If the block txid seen update block status to -1(Confirmed orphan) else to 2(Transaction seen)
+		block_txid = block[1]
 		flag = False
 
 		for t in transfers:
@@ -145,14 +144,13 @@ def update_block_status(cur):
 				flag = True
 				break
 
-		# If the block txid seen update block status to -1(Confirmed orphan) else to 2(Transaction seen)
 		if flag == True:
 			change_block_status(cur, height, 2)
 		else:
 			change_block_status(cur, height, -1)
 
 	# Get status-3 blocks that are in a safe distance(60 blocks)
-	cur.execute('SELECT height FROM mined_blocks WHERE status=3 AND height <= %s',
+	cur.execute('SELECT height, txid FROM mined_blocks WHERE status=3 AND height <= %s',
 				(wallet_height-60,)) # Q: It should be wallet_height or wallet_height-60?
 	heights = cur.fetchall()
 
@@ -162,13 +160,13 @@ def update_block_status(cur):
 		status_3_blocks.append(height[0])
 
 	# Get status-2 blocks that are in safe distance
-	cur.execute('SELECT height FROM mined_blocks WHERE status=2 AND height <= %s',
+	cur.execute('SELECT height, txid FROM mined_blocks WHERE status=2 AND height <= %s',
 				(wallet_height-60,))
-	heights = cur.fetchall()
+	blocks = cur.fetchall()
 
 	# For each status-2 block
-	for height in heights:
-		height = height[0]
+	for block in blocks:
+		height = block[0]
 		# Q: Is it necessary to get block-2 tansactions?
 		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
 												'in': True, 'pending': True,
@@ -187,8 +185,16 @@ def update_block_status(cur):
 			temp += transfers['failed']
 		transfers = temp
 
-		# Change block status-2 blocks status's to 3
-		if transfers != []:
+		# Change block status-2 blocks status's to 3 if the block txid seen
+		block_txid = block[1]
+		flag = False
+
+		for t in transfers:
+			if t['txid'] == block_txid:
+				flag = True
+				break
+
+		if flag == True:
 			change_block_status(cur, height, 3)
 			status_3_blocks.append(height)
 		else:
