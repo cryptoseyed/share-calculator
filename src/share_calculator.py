@@ -107,7 +107,7 @@ def change_block_status(cur, height, status):
 
 def update_block_status(cur):
 	"""Update blocks statuses"""
-	wallet_height = get_wallet_hight()
+	wallet_height = get_wallet_height()
 
 	# Get submit failed(status-0) and submit OK(status-1) blocks that are in a safe distance(10)
 	cur.execute('SELECT height, txid FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s',
@@ -302,7 +302,7 @@ def update_status(cur, txid, status):
 
 def update_payment_status(cur):
 	"""Update MONITORED payments to SUCCESS or FAILED"""
-	current_block_height = get_wallet_hight()
+	current_block_height = get_wallet_height()
 
 	# Get MONITORED payments
 	cur.execute('SELECT txid FROM payments WHERE status = \'MONITORED\'')
@@ -504,7 +504,7 @@ def pay_payments(cur):
 
 		message('Payments completed')
 
-def get_wallet_hight():
+def get_wallet_height():
 	"""Get the wallet's current block height"""
 	return wallet_rpc('getheight')['height']
 
@@ -531,7 +531,7 @@ try:
 
 	while True:
 
-		message('Block: ' + str(get_wallet_hight()))
+		message('Block: ' + str(get_wallet_height()))
 
 		update_payment_status(CURS)
 
