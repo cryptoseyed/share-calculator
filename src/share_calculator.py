@@ -135,8 +135,18 @@ def update_block_status(cur):
 			temp += transfers['failed']
 		transfers = temp
 
-		# If there is no transaction update block status to -1(Confirmed orphan) else to 2(Transaction seen)
-		if transfers != []:
+		# Get block txid
+		cur.execute('SELECT txid FROM mined_blocks WHERE height=%s', (height,))
+		block_txid = cur.fetchone()[0]
+		flag = False
+
+		for t in transfers:
+			if t['txid'] == block_txid:
+				flag = True
+				break
+
+		# If the block txid seen update block status to -1(Confirmed orphan) else to 2(Transaction seen)
+		if flag == True:
 			change_block_status(cur, height, 2)
 		else:
 			change_block_status(cur, height, -1)
