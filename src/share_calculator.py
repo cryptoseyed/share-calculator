@@ -5,7 +5,6 @@ import time
 import json
 from os import urandom
 from binascii import hexlify
-from pprint import pprint
 
 import requests
 
@@ -21,7 +20,6 @@ colorama_init(autoreset=True)
 
 # Read settings from settings file
 SLEEP_TIME = SETTING['SLEEP_TIME']
-BLOCK_REWARD = SETTING['BLOCK_REWARD']
 POOL_FEE = SETTING['POOL_FEE'] # In %
 SG_WALLET_RPC_ADDR = SETTING['SG_WALLET_RPC_ADDR_TESTNET']
 TG_WALLET_RPC_AUTH = SETTING['TG_WALLET_RPC_AUTH_TESTNET']
@@ -31,7 +29,6 @@ WALLET_NAME = SETTING['WALLET_NAME']
 TESTING_MODE = SETTING['TESTING_MODE']
 PSQL_USERNAME = SETTING['psqlUser']
 PSQL_PASSWORD = SETTING['psqlPass']
-N = SETTING['N']
 LAST_BLOCK = 0
 
 def message(string):
@@ -434,11 +431,6 @@ def make_N_shares(cur):
 		message('Credits for block ' + str(t[0]) + ' calculated.')
 
 	return retval
-
-def get_max_block_id(cur):
-	"""Get latest mined block block ID"""
-	cur.execute("""SELECT MAX(blk_id) FROM mined_blocks""")
-	return cur.fetchone()[0]
 
 def get_block_id(cur, height):
 	"""Get block id of height"""
