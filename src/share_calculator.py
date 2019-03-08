@@ -336,7 +336,9 @@ def make_N_shares(cur):
 	temp = []
 	for t in times:
 		block_temp = [t[0], t[1]]
-		block_temp.append(daemon_rpc('get_block', {'height': t[0]})['block_header']['difficulty']*2)
+		daemon_responce = daemon_rpc('get_block', {'height': t[0]})
+		block_temp.append(daemon_responce['block_header']['difficulty']*2)
+		block_temp.append(daemon_responce['block_header']['reward'])
 		temp.append(block_temp)
 	times = temp
 	retval = {}
@@ -397,7 +399,7 @@ def make_N_shares(cur):
 					counter += i[1]
 
 			for k in retval[t[0]]:
-				retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/t[2]))*(1-(POOL_FEE/100)))
+				retval[t[0]][k] = int(((t[3])*(retval[t[0]][k]/t[2]))*(1-(POOL_FEE/100)))
 				message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
 						+ ' for user ' + k + '.')
 		else:
@@ -411,7 +413,7 @@ def make_N_shares(cur):
 					counter += i[1]
 
 			for k in retval[t[0]]:
-				retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/float(last_result)))*(1-(POOL_FEE/100)))
+				retval[t[0]][k] = int(((t[3])*(retval[t[0]][k]/float(last_result)))*(1-(POOL_FEE/100)))
 				message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
 						+ ' for user ' + k + '.')
 
