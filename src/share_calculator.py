@@ -343,6 +343,9 @@ def make_N_shares(cur):
 	for t in times:
 		flag = False
 		limiter = 1
+		last_result = 0
+		result_flag = False
+		limiter_checker = 10
 		while flag is False:
 			cur.execute("""SELECT COALESCE(SUM(temp2.sum), 0) AS sum
 							FROM
@@ -354,6 +357,16 @@ def make_N_shares(cur):
 									ORDER BY TIME DESC LIMIT %s) AS temp 
 								GROUP BY uid) AS temp2""", (t[1], limiter))
 			result = cur.fetchone()
+
+			if result[0] == last_result:
+				limiter_checker -= 1
+				if limiter_checker == 0:
+					flag = True
+					result_flag = True
+			else:
+				limiter_checker = 10
+
+			last_result = result[0]
 
 			if result[0] >= t[2]:
 				flag = True
@@ -373,19 +386,34 @@ def make_N_shares(cur):
 		counter = 0
 
 		retval[t[0]] = {}
-		for i in result:
-			if str(i[0]) not in retval[t[0]]:
-				retval[t[0]][str(i[0])] = 0
-			if counter + i[1] > t[2]:
-				retval[t[0]][str(i[0])] += t[2] - counter # i[1] - ((counter + i[1]) - N)
-			else:
-				retval[t[0]][str(i[0])] += i[1]
-				counter += i[1]
+		if result_flag is False:
+			for i in result:
+				if str(i[0]) not in retval[t[0]]:
+					retval[t[0]][str(i[0])] = 0
+				if counter + i[1] > t[2]:
+					retval[t[0]][str(i[0])] += t[2] - counter # i[1] - ((counter + i[1]) - N)
+				else:
+					retval[t[0]][str(i[0])] += i[1]
+					counter += i[1]
 
-		for k in retval[t[0]]:
-			retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/t[2]))*(1-(POOL_FEE/100)))
-			message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
-					+ ' for user ' + k + '.')
+			for k in retval[t[0]]:
+				retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/t[2]))*(1-(POOL_FEE/100)))
+				message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
+						+ ' for user ' + k + '.')
+		else:
+			for i in result:
+				if str(i[0]) not in retval[t[0]]:
+					retval[t[0]][str(i[0])] = 0
+				if counter + i[1] > last_result:
+					retval[t[0]][str(i[0])] += last_result - counter # i[1] - ((counter + i[1]) - N)
+				else:
+					retval[t[0]][str(i[0])] += i[1]
+					counter += i[1]
+
+			for k in retval[t[0]]:
+				retval[t[0]][k] = int((BLOCK_REWARD*(retval[t[0]][k]/float(last_result)))*(1-(POOL_FEE/100)))
+				message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
+						+ ' for user ' + k + '.')
 
 		message('Credits for block ' + str(t[0]) + ' calculated.')
 

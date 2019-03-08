@@ -36,11 +36,11 @@ MY_FILE.write('COMMIT;\n')
 with open('shares.csv', 'w') as share_file:
 	share_writer = csv.writer(share_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 	share_writer.writerow(['rid', 'uid', 'time', 'count'])
-	for i in range(1000):
+	for i in range(10000):
 		RID = random.randint(1, 5)
 		UID = random.randint(1, 3)
 		TIME = random.randint(1527131460, 1527181566)
-		COUNT = random.randint(20000, 50000)
+		COUNT = random.randint(1, 3000)
 		MY_FILE.write('INSERT INTO wpv1.valid_shares (rid, uid, time, count) VALUES (' \
 	+ str(RID) + ', ' + str(UID) + ', ' + str(TIME) + ', ' + str(COUNT) + ');\n')
 		share_writer.writerow([RID, UID, TIME, COUNT])
