@@ -149,16 +149,6 @@ def update_block_status(cur):
 		else:
 			change_block_status(cur, height, -1)
 
-	# Get status-3 blocks that are in a safe distance(60 blocks)
-	cur.execute('SELECT height, txid FROM mined_blocks WHERE status=3 AND height <= %s',
-				(wallet_height-60,)) # Q: It should be wallet_height or wallet_height-60?
-	heights = cur.fetchall()
-
-	status_3_blocks = []
-
-	for height in heights:
-		status_3_blocks.append(height[0])
-
 	# Get status-2 blocks that are in safe distance
 	cur.execute('SELECT height, txid FROM mined_blocks WHERE status=2 AND height <= %s',
 				(wallet_height-60,))
@@ -196,9 +186,17 @@ def update_block_status(cur):
 
 		if flag == True:
 			change_block_status(cur, height, 3)
-			status_3_blocks.append(height)
 		else:
 			change_block_status(cur, height, -1)
+
+	# Get status-3 blocks
+	cur.execute('SELECT height FROM mined_blocks WHERE status=3')
+	heights = cur.fetchall()
+
+	status_3_blocks = []
+
+	for height in heights:
+		status_3_blocks.append(height[0])
 
 	return status_3_blocks
 
