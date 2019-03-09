@@ -12,6 +12,7 @@ import psycopg2
 
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from colorama import init as colorama_init, Fore
+from pprint import pprint
 
 from settings import SETTING
 
@@ -453,6 +454,8 @@ def calculate_credit(cur):
 def pay_payments(cur):
 	"""Pay payments base on credits and paid payments"""
 	destinations = []
+	destinations_counter = 1
+	payment_id_destinations = []
 	messages = {}
 	new_payments = {}
 
@@ -466,26 +469,41 @@ def pay_payments(cur):
 		user_wallet = get_user_wallet(cur, uid)
 
 		amount = new_payments[uid]
-		destinations.append({'amount': amount,
-								'address': user_wallet})
+		if len(destinations) != destinations_counter:
+			destinations.append([])
+		if user_wallet.startswith('RYoE') or '.' in user_wallet:
+			payment_id_destinations.append([{'amount': amount,
+											'address': user_wallet}])
+		else:
+			destinations[destinations_counter-1].append({'amount': amount,
+														'address': user_wallet})
 		messages[uid] = {'amount': amount, 'address': user_wallet}
 
-	if destinations != []:
-		json_data = {}
-		transfer_info = {}
+		if len(destinations[destinations_counter-1]) == 15:
+			destinations_counter += 1
 
-		txid = hexlify(urandom(32)).decode()
+	with open('Payments', 'a+') as f:
+		f.writelines('destinations:\n')
+		pprint(destinations, f)
+		f.writelines('payment_id_destinations:\n')
+		pprint(payment_id_destinations, f)
+		f.writelines('\n\n\n\n\n')
 
-		if TESTING_MODE is True:
-			json_data['tx_hash'] = 'TEST'
-			transfer_info['transfer'] = {}
-			transfer_info['transfer']['timestamp'] = 1536234479
-		else:
-			json_data = wallet_rpc('transfer',
-									{'destinations': destinations, 'payment_id': txid}) # 'get_tx_key': True
-			transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+	if destinations != [] or payment_id_destinations != []:
+		for pay in destinations + payment_id_destinations:
+			json_data = {}
+			transfer_info = {}
 
+			txid = hexlify(urandom(32)).decode()
 
+			if TESTING_MODE is True:
+				json_data['tx_hash'] = 'TEST'
+				transfer_info['transfer'] = {}
+				transfer_info['transfer']['timestamp'] = 1536234479
+			else:
+				json_data = wallet_rpc('transfer',
+										{'destinations': pay, 'payment_id': txid}) # 'get_tx_key': True
+				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
 
 		for uid in messages:
 			submit_payment(cur, uid, messages[uid]['amount'], json_data['tx_hash'],

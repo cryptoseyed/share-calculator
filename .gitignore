@@ -117,6 +117,7 @@ DATA.sql
 
 # Log
 log.txt
+Payments
 
 # Document
 _build
