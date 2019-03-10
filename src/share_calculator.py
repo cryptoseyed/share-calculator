@@ -494,7 +494,10 @@ def pay_payments(cur):
 			json_data = {}
 			transfer_info = {}
 
-			txid = hexlify(urandom(32)).decode()
+			payment_id = ''
+			if '.' in pay[0]['address']:
+				payment_id = pay[0]['address'].split('.')[1]
+				pay[0]['address'] = pay[0]['address'].split('.')[0]
 
 			if TESTING_MODE is True:
 				json_data['tx_hash'] = 'TEST'
@@ -502,7 +505,7 @@ def pay_payments(cur):
 				transfer_info['transfer']['timestamp'] = 1536234479
 			else:
 				json_data = wallet_rpc('transfer',
-										{'destinations': pay, 'payment_id': txid}) # 'get_tx_key': True
+										{'destinations': pay, 'payment_id': payment_id}) # 'get_tx_key': True
 				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
 
 		for uid in messages:
