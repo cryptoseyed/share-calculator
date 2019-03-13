@@ -456,7 +456,6 @@ def pay_payments(cur):
 	destinations = []
 	destinations_counter = 1
 	payment_id_destinations = []
-	messages = {}
 	new_payments = {}
 
 	user_payment_info = get_balances_and_thresholds(cur)
@@ -468,16 +467,17 @@ def pay_payments(cur):
 	for uid in new_payments:
 		user_wallet = get_user_wallet(cur, uid)
 
-		amount = new_payments[uid]
+		amount = 100000000 # new_payments[uid]
 		if len(destinations) != destinations_counter:
 			destinations.append([])
 		if user_wallet.startswith('RYoE') or '.' in user_wallet:
 			payment_id_destinations.append([{'amount': amount,
-											'address': user_wallet}])
+											'address': user_wallet,
+											'uid': uid}])
 		else:
 			destinations[destinations_counter-1].append({'amount': amount,
-														'address': user_wallet})
-		messages[uid] = {'amount': amount, 'address': user_wallet}
+														'address': user_wallet,
+														'uid': uid})
 
 		if len(destinations[destinations_counter-1]) == 15:
 			destinations_counter += 1
@@ -503,17 +503,25 @@ def pay_payments(cur):
 				json_data['tx_hash'] = 'TEST'
 				transfer_info['transfer'] = {}
 				transfer_info['transfer']['timestamp'] = 1536234479
+				for p in pay:
+					submit_payment(cur, p['uid'], p['amount'], json_data['tx_hash'],
+									transfer_info['transfer']['timestamp'])
+					message('Pay ' + str(format(int(p['amount'])/1000000000, '.9f')) + \
+							' to ' + str(p['address']) + ' for user ' + str(p['uid']) + '.')
 			else:
-				json_data = wallet_rpc('transfer',
-										{'destinations': pay, 'payment_id': payment_id}) # 'get_tx_key': True
-				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
-
-		for uid in messages:
-			submit_payment(cur, uid, messages[uid]['amount'], json_data['tx_hash'],
-						transfer_info['transfer']['timestamp'])
-
-			message('Pay ' + str(format(int(messages[uid]['amount'])/1000000000, '.9f')) + \
-					' to ' + str(messages[uid]['address']) + ' for user ' + str(uid) + '.')
+				try:
+					json_data = wallet_rpc('transfer',
+											{'destinations': pay, 'payment_id': payment_id}) # 'get_tx_key': True
+					transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+					for p in pay:
+						submit_payment(cur, p['uid'], p['amount'], json_data['tx_hash'],
+										transfer_info['transfer']['timestamp'])
+						message('Pay ' + str(format(int(p['amount'])/1000000000, '.9f')) + \
+								' to ' + str(p['address']) + ' for user ' + str(p['uid']) + '.')
+				except RuntimeError:
+					for p in pay:
+						error('Faild to pay ' + str(format(int(p['amount'])/1000000000, '.9f')) + \
+								' to ' + str(p['address']) + ' for user ' + str(p['uid']) + '.')
 
 		message('Payments completed')
 
