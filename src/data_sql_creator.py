@@ -75,15 +75,15 @@ RYoTqyZe1acDsEdLXER6oj8yBXEaYjez1dY7iTJV9x5UEg31B2SQBPbToZu7qN4c2pBJBNZ5kLi18EkJ
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (12, \'\
 RYoTqyUJGj2UsrjiSuzFSrXoet2bdaYkiSM2VYYv4Ebe4ozPjKAKtyUHEUXiwcWy5X8zq84jJCSkEcP1DxoA9na7BptetDo1RYf\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (13, \'\
-RYoUqknfQqGTU9Rbh4NjERWKAeQa7MRGe8D8AkhNAeQs9gnCUskggskdf7EhcQTSNgd5sTATogQz9GdmGHqcWf$ZYNQRM86UuH6\', 10000000);\n')
+RYoUqknfQqGTU9Rbh4NjERWKAeQa7MRGe8D8AkhNAeQs9gnCUskggskdf7EhcQTSNgd5sTATogQz9GdmGHqcWfcZYNQRM86UuH6\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (14, \'\
-RYoEu2xHUztUsrjiSuzFSrXoet2bdaYkiSM2VYYv4Ebe4ozPjKAKtyUHEUXiwcWy5X8zq84jJCSkEcP1DxoA9n$7BptetDPj9dD1qjcTM44jvr\', 10000000);\n')
+RYoEu2xHUztUsrjiSuzFSrXoet2bdaYkiSM2VYYv4Ebe4ozPjKAKtyUHEUXiwcWy5X8zq84jJCSkEcP1DxoA9na7BptetDPj9dD1qjcTM44jvr\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (15, \'\
-RYoTqyUJGj2UsrjiSuzFSrXoet2bdaYkiSM2VYYv4Ebe4ozPjKAKtyUHEUXiwcWy5X8zq84jJCSkEcP1DxoA9n$7BptetDo1RYf.0102030405060708111213141516171821222324252627283132333435363738\', 10000000);\n')
+RYoTqyUJGj2UsrjiSuzFSrXoet2bdaYkiSM2VYYv4Ebe4ozPjKAKtyUHEUXiwcWy5X8zq84jJCSkEcP1DxoA9na7BptetDo1RYf.0102030405060708111213141516171821222324252627283132333435363738\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (16, \'\
-RYoTqzs1o6kNQx33aofyxQcMKZxUTQCD63BJ9NRZv7pySpYDEU3hevySdmZdjqKP5z81K8dPxVFun9zu9TiUy2$ed9VN8mubbVG\', 10000000);\n')
+RYoTqzs1o6kNQx33aofyxQcMKZxUTQCD63BJ9NRZv7pySpYDEU3hevySdmZdjqKP5z81K8dPxVFun9zu9TiUy2Ned9VN8mubbVG\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (17, \'\
-RYoUqkjo9C44ivLiXruauVED2tzkSdazKLrwm8qDELKXH9QsvmCh5bdgqFuPu8xX9NApjaFFCAPHa23LzuGmzY$xJ2jRB7W45Ss\', 10000000);\n')
+RYoUqkjo9C44ivLiXruauVED2tzkSdazKLrwm8qDELKXH9QsvmCh5bdgqFuPu8xX9NApjaFFCAPHa23LzuGmzYkxJ2jRB7W45Ss\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (18, \'\
 RYoEu4M11NcNQx33aofyxQcMKZxUTQCD63BJ9NRZv7pySpYDEU3hevySdmZdjqKP5z81K8dPxVFun9zu9TiUy2Ned9VN8hknMw11qjcTQSDPe5\', 10000000);\n')
 MY_FILE.write('INSERT INTO wpv1.users (uid, wallet, payment_threshold) VALUES (19, \'\
