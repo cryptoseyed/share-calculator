@@ -11,6 +11,7 @@ import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from colorama import init as colorama_init, Fore
 from pprint import pprint
+from math import floor
 
 from settings import SETTING
 
@@ -216,6 +217,9 @@ def wallet_rpc(s_method, d_params=None):
 		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
 
 	d_jsn = o_rsp.json()
+	with open('d_jsn', 'a+') as f:
+		f.writelines(str(d_jsn))
+		f.writelines('\n')
 	if 'error' in d_jsn:
 		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
 
@@ -252,11 +256,11 @@ def record_credit(cur, blk_id, uid, credit):
 	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)',
 					(blk_id, uid, credit))
 
-def submit_payment(cur, uid, amount, txid, txtime):
+def submit_payment(cur, uid, amount, txid, txtime, fee):
 	"""Submit payed payment"""
 	try:
-		cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)',
-							(uid, amount, txid, txtime, 'MONITORED'))
+		cur.execute("""INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)""",
+							(uid, amount, txid, txtime, 'MONITORED', uid, fee, txid, txtime, 'FEE'))
 		return True
 	except:
 		return False
@@ -456,7 +460,7 @@ def calculate_credit(cur):
 		change_block_status(cur, height, 4)
 
 def calculate_fee(ring_size, bytes_no, fee_multiplier):
-	fee = ((bytes_no + 1023) / 1024) * FEE_PER_KB
+	fee = floor((bytes_no + 1023) / 1024) * FEE_PER_KB
 	fee += ring_size * FEE_PER_RING_MEMBER
 	return fee * fee_multiplier
 
@@ -530,16 +534,16 @@ def pay_payments(cur):
 		if '.' in user_wallet:
 			payment_id_destinations.append([{'amount': amount,
 											'address': user_wallet.split('.')[0]}])
-			payment_id_destinations_uid.append([{'uid': uid, 'payment_id': user_wallet.split('.')[1]}])
+			payment_id_destinations_uid.append([{'uid': uid, 'payment_id': user_wallet.split('.')[1], 'fee': 0}])
 		elif user_wallet.startswith('RYoE'):
 			payment_id_destinations.append([{'amount': amount,
 											'address': user_wallet}])
-			payment_id_destinations_uid.append([{'uid': uid, 'payment_id': ''}])
+			payment_id_destinations_uid.append([{'uid': uid, 'payment_id': '', 'fee': 0}])
 
 		else:
 			destinations[destinations_counter-1].append({'amount': amount,
 														'address': user_wallet})
-			destinations_uid[destinations_counter-1].append({'uid': uid, 'payment_id': ''})
+			destinations_uid[destinations_counter-1].append({'uid': uid, 'payment_id': '', 'fee': 0})
 
 		if len(destinations[destinations_counter-1]) == 15:
 			destinations_counter += 1
@@ -569,6 +573,17 @@ def process_payment(cur, dest, uids):
 		transfer_info = {}
 
 		if TESTING_MODE is True:
+			bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=24, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
+			fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=1)
+
+			fee_for_each_one = floor(fee/len(dest[i]))
+
+			for d in dest[i]:
+				d['amount'] = d['amount'] - fee_for_each_one
+
+			for u in uids[i]:
+				u['fee'] = fee_for_each_one
+
 			json_data['tx_hash'] = 'TEST'
 			transfer_info['transfer'] = {}
 			transfer_info['transfer']['timestamp'] = 1536234479
@@ -577,7 +592,8 @@ def process_payment(cur, dest, uids):
 								uids[i][j]['uid'],
 								dest[i][j]['amount'],
 								json_data['tx_hash'],
-								transfer_info['transfer']['timestamp'])
+								transfer_info['transfer']['timestamp'],
+								uids[i][j]['fee'])
 
 				message('Pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
 						' to ' + str(dest[i][j]['address']) + \
@@ -586,6 +602,14 @@ def process_payment(cur, dest, uids):
 			try:
 				bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=24, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
 				fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=1)
+
+				fee_for_each_one = floor(fee/len(dest[i]))
+
+				for d in dest[i]:
+					d['amount'] = d['amount'] - fee_for_each_one
+
+				for u in uids[i]:
+					u['fee'] = fee_for_each_one
 
 				if uids[i][0]['payment_id'] == '':
 					json_data = wallet_rpc('transfer',
@@ -599,14 +623,16 @@ def process_payment(cur, dest, uids):
 
 				with open('fee', 'a+') as f:
 					f.writelines('Calculated: ' + str(fee) + '\n')
-					f.writelines('Actual: ' + str(transfer_info['transfer']['fee']) + '\n\n\n')
+					f.writelines('Actual: ' + str(transfer_info['transfer']['fee']) + '\n')
+					f.writelines('Diff: ' + str(fee-transfer_info['transfer']['fee']) + '\n\n\n')
 
 				for j in range(len(dest[i])):
 					result = submit_payment(cur, 
 											uids[i][j]['uid'],
 											dest[i][j]['amount'], 
 											json_data['tx_hash'],
-											transfer_info['transfer']['timestamp'])
+											transfer_info['transfer']['timestamp'],
+											uids[i][j]['fee'])
 
 					if result == True:
 						message('Pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
@@ -617,7 +643,7 @@ def process_payment(cur, dest, uids):
 								' to ' + str(dest[i][j]['address']) + \
 								' for user ' + str(uids[i][j]['uid']) + '.')
 
-			except RuntimeError:
+			except RuntimeError as re:
 				for j in range(len(dest[i])):
 					error('Faild to pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
 							' to ' + str(dest[i][j]['address']) + \
