@@ -29,6 +29,8 @@ TESTING_MODE = SETTING['TESTING_MODE']
 PSQL_USERNAME = SETTING['psqlUser']
 PSQL_PASSWORD = SETTING['psqlPass']
 LAST_BLOCK = 0
+FEE_PER_KB = SETTING['FEE_PER_KB']
+FEE_PER_RING_MEMBER = SETTING['FEE_PER_RING_MEMBER']
 
 def message(string):
 	"""Print out messages"""
@@ -453,6 +455,56 @@ def calculate_credit(cur):
 			record_credit(cur, blk_id, uid, N_shares[height][uid])
 		change_block_status(cur, height, 4)
 
+def calculate_fee(ring_size, bytes_no, fee_multiplier):
+	fee = ((bytes_no + 1023) / 1024) * FEE_PER_KB
+	fee += ring_size * FEE_PER_RING_MEMBER
+	return fee * fee_multiplier
+
+def estimate_rct_tx_size(n_inputs, mixin, n_outputs, extra_size, bulletproof):
+	size = 0
+
+	#  tx prefix
+
+	# first few bytes
+	size += 1 + 6
+
+	# vin
+	size += n_inputs * (1 + 6 + (mixin + 1) * 2 + 32)
+
+	# vout
+	size += n_outputs * (6 + 32)
+
+# extra
+	size += extra_size
+
+	# rct signatures
+
+	# type
+	size += 1
+
+	# rangeSigs
+	if bulletproof:
+		size += ((2 * 6 + 4 + 5) * 32 + 3) * n_outputs
+	else:
+		size += (2 * 64 * 32 + 32 + 64 * 32) * n_outputs
+
+# MGs
+	size += n_inputs * (64 * (mixin + 1) + 32)
+
+	# mixRing - not serialized, can be reconstructed
+	# size += 2 * 32 * (mixin+1) * n_inputs
+
+	# pseudoOuts
+	size += 32 * n_inputs
+	# ecdhInfo
+	size += 2 * 32 * n_outputs
+	# outPk - only commitment is saved
+	size += 32 * n_outputs
+	# txnFee
+	size += 4
+
+	return size
+
 def pay_payments(cur):
 	"""Pay payments base on credits and paid payments"""
 	destinations = []
@@ -532,6 +584,9 @@ def process_payment(cur, dest, uids):
 						' for user ' + str(uids[i][j]['uid']) + '.')
 		else:
 			try:
+				bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=24, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
+				fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=1)
+
 				if uids[i][0]['payment_id'] == '':
 					json_data = wallet_rpc('transfer',
 											{'destinations': dest[i]}) # 'get_tx_key': True
@@ -541,6 +596,10 @@ def process_payment(cur, dest, uids):
 												'payment_id': uids[i][0]['payment_id']}) # 'get_tx_key': True
 
 				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+
+				with open('fee', 'a+') as f:
+					f.writelines('Calculated: ' + str(fee) + '\n')
+					f.writelines('Actual: ' + str(transfer_info['transfer']['fee']) + '\n\n\n')
 
 				for j in range(len(dest[i])):
 					result = submit_payment(cur, 
