@@ -252,8 +252,12 @@ def record_credit(cur, blk_id, uid, credit):
 
 def submit_payment(cur, uid, amount, txid, txtime):
 	"""Submit payed payment"""
-	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)',
-						(uid, amount, txid, txtime, 'MONITORED'))
+	try:
+		cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)',
+							(uid, amount, txid, txtime, 'MONITORED'))
+		return True
+	except:
+		return False
 
 def get_balances_and_thresholds(cur):
 	"""Get users sum of credits, sum of payment and threshold"""
@@ -483,7 +487,7 @@ def pay_payments(cur):
 		else:
 			destinations[destinations_counter-1].append({'amount': amount,
 														'address': user_wallet})
-			destinations_uid[destinations_counter-1].append({'uid': uid})
+			destinations_uid[destinations_counter-1].append({'uid': uid, 'payment_id': ''})
 
 		if len(destinations[destinations_counter-1]) == 15:
 			destinations_counter += 1
@@ -500,7 +504,15 @@ def pay_payments(cur):
 			pprint(payment_id_destinations_uid, f)
 			f.writelines('\n\n\n\n\n')
 
-	for i in range(len(destinations)):
+	process_payment(cur, destinations, destinations_uid)
+
+	process_payment(cur, payment_id_destinations, payment_id_destinations_uid)
+
+	message('Payments completed')
+
+def process_payment(cur, dest, uids):
+	"""Process payment"""
+	for i in range(len(dest)):
 		json_data = {}
 		transfer_info = {}
 
@@ -508,88 +520,50 @@ def pay_payments(cur):
 			json_data['tx_hash'] = 'TEST'
 			transfer_info['transfer'] = {}
 			transfer_info['transfer']['timestamp'] = 1536234479
-			for j in range(len(destinations[i])):
+			for j in range(len(dest[i])):
 				submit_payment(cur,
-								destinations_uid[i][j]['uid'],
-								destinations[i][j]['amount'],
+								uids[i][j]['uid'],
+								dest[i][j]['amount'],
 								json_data['tx_hash'],
 								transfer_info['transfer']['timestamp'])
 
-				message('Pay ' + str(format(int(destinations[i][j]['amount'])/1000000000, '.9f')) + \
-						' to ' + str(destinations[i][j]['address']) + \
-						' for user ' + str(destinations_uid[i][j]['uid']) + '.')
+				message('Pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+						' to ' + str(dest[i][j]['address']) + \
+						' for user ' + str(uids[i][j]['uid']) + '.')
 		else:
 			try:
-				json_data = wallet_rpc('transfer',
-										{'destinations': destinations[i]}) # 'get_tx_key': True
-
-				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
-
-				for j in range(len(destinations[i])):
-					submit_payment(cur, 
-									destinations_uid[i][j]['uid'],
-									destinations[i][j]['amount'], 
-									json_data['tx_hash'],
-									transfer_info['transfer']['timestamp'])
-
-					message('Pay ' + str(format(int(destinations[i][j]['amount'])/1000000000, '.9f')) + \
-							' to ' + str(destinations[i][j]['address']) + \
-							' for user ' + str(destinations_uid[i][j]['uid']) + '.')
-
-			except RuntimeError:
-				for j in range(len(destinations[i])):
-					error('Faild to pay ' + str(format(int(destinations[i][j]['amount'])/1000000000, '.9f')) + \
-							' to ' + str(destinations[i][j]['address']) + \
-							' for user ' + str(destinations_uid[i][j]['uid']) + '.')
-		time.sleep(1)
-
-	for i in range(len(payment_id_destinations)):
-		json_data = {}
-		transfer_info = {}
-
-		if TESTING_MODE is True:
-			json_data['tx_hash'] = 'TEST'
-			transfer_info['transfer'] = {}
-			transfer_info['transfer']['timestamp'] = 1536234479
-
-			submit_payment(cur,
-							payment_id_destinations_uid[i][0]['uid'],
-							payment_id_destinations[i][0]['amount'],
-							json_data['tx_hash'],
-							transfer_info['transfer']['timestamp'])
-
-			message('Pay ' + str(format(int(payment_id_destinations[i][0]['amount'])/1000000000, '.9f')) + \
-					' to ' + str(payment_id_destinations[i][0]['address']) + \
-					' for user ' + str(payment_id_destinations_uid[i][0]['uid']) + '.')
-		else:
-			try:
-				if payment_id_destinations_uid[i][0]['payment_id'] != '':
+				if uids[i][0]['payment_id'] == '':
 					json_data = wallet_rpc('transfer',
-											{'destinations': payment_id_destinations[i], \
-												'payment_id': payment_id_destinations_uid[i][0]['payment_id']}) # 'get_tx_key': True
+											{'destinations': dest[i]}) # 'get_tx_key': True
 				else:
 					json_data = wallet_rpc('transfer',
-											{'destinations': payment_id_destinations[i]}) # 'get_tx_key': True
+											{'destinations': dest[i], \
+												'payment_id': uids[i][0]['payment_id']}) # 'get_tx_key': True
+
 				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
 
-				for j in range(len(payment_id_destinations[i])):
-					submit_payment(cur,
-									payment_id_destinations_uid[i][0]['uid'],
-									payment_id_destinations[i][0]['amount'],
-									json_data['tx_hash'],
-									transfer_info['transfer']['timestamp'])
+				for j in range(len(dest[i])):
+					result = submit_payment(cur, 
+											uids[i][j]['uid'],
+											dest[i][j]['amount'], 
+											json_data['tx_hash'],
+											transfer_info['transfer']['timestamp'])
 
-					message('Pay ' + str(format(int(payment_id_destinations[i][0]['amount'])/1000000000, '.9f')) + \
-							' to ' + str(payment_id_destinations[i][0]['address']) + \
-							' for user ' + str(payment_id_destinations_uid[i][0]['uid']) + '.')
+					if result == True:
+						message('Pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+								' to ' + str(dest[i][j]['address']) + \
+								' for user ' + str(uids[i][j]['uid']) + '.')
+					else:
+						error('Failed to record payment ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+								' to ' + str(dest[i][j]['address']) + \
+								' for user ' + str(uids[i][j]['uid']) + '.')
 
 			except RuntimeError:
-				error('Faild to pay ' + str(format(int(payment_id_destinations[i][0]['amount'])/1000000000, '.9f')) + \
-						' to ' + str(payment_id_destinations[i][0]['address']) + \
-						' for user ' + str(payment_id_destinations_uid[i][0]['uid']) + '.')
+				for j in range(len(dest[i])):
+					error('Faild to pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+							' to ' + str(dest[i][j]['address']) + \
+							' for user ' + str(uids[i][j]['uid']) + '.')
 		time.sleep(1)
-
-	message('Payments completed')
 
 def get_wallet_height():
 	"""Get the wallet's current block height"""
