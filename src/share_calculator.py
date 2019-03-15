@@ -39,76 +39,135 @@ TRANSFER_MAX_RECIPIENTS = SETTING['TRANSFER_MAX_RECIPIENTS']
 def message(string):
 	"""Print out messages"""
 	string = str(string)
-	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
-	+ Fore.GREEN + 'Message: ' + Fore.RESET + string)
-	with open('log.txt', 'a+') as f:
-		f.write('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
-	+ 'Message: ' + string + '\n')
+	print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ Fore.GREEN + ' Message - ' + Fore.RESET + string)
+	with open('share_claculator.log', 'a+') as f:
+		f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ ' Message - ' + string + '\n')
+
+def message_wallet_rpc(REQorRES, data):
+	"""Print out messages for wallet RPC calls"""
+	if REQorRES == 'req':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Request] Wallet RPC' + Fore.RESET)
+	elif REQorRES == 'res':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Response] Wallet RPC' + Fore.RESET)
+	else:
+		return
+	# pprint(data)
+	with open('Wallet_RPC_Calls.log', 'a+') as f:
+		if REQorRES == 'req':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Request] Wallet RPC' + '\n')
+		elif REQorRES == 'res':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Response] Wallet RPC' + '\n')
+		pprint(data, f)
+		f.write('\n')
+
+def message_daemon_rpc(REQorRES, data):
+	"""Print out messages for daemon RPC calls"""
+	if REQorRES == 'req':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Request] Daemon RPC' + Fore.RESET)
+	elif REQorRES == 'res':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Response] Daemon RPC' + Fore.RESET)
+	else:
+		return
+	# pprint(data)
+	with open('Daemon_RPC_Calls.log', 'a+') as f:
+		if REQorRES == 'req':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Request] Daemon RPC' + '\n')
+		elif REQorRES == 'res':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Response] Daemon RPC' + '\n')
+		pprint(data, f)
+		f.write('\n')
 
 def error(string):
 	"""Print out error"""
 	string = str(string)
-	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
-	+ Fore.RED + 'Error: ' + Fore.RESET + string)
-	with open('log.txt', 'a+') as f:
-		f.write('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
-	+ 'Error: ' + string + '\n')
+	print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ Fore.RED + ' Error - ' + Fore.RESET + string)
+	with open('share_claculator.log', 'a+') as f:
+		f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ ' Error - ' + string + '\n')
 
 def connection_init():
 	"""Create database connection"""
-	conn = psycopg2.connect(user=PSQL_USERNAME,
-							password=PSQL_PASSWORD,
-							host="localhost",
-							port="5432")
-	message('Connection created')
+	try:
+		conn = psycopg2.connect(user=PSQL_USERNAME,
+								password=PSQL_PASSWORD,
+								host="localhost",
+								port="5432")
+		message('Database connection created')
+	except:
+		error('Faild to creat database connection')
+		sys.exit()
 
 	conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-	cur = conn.cursor()
-	message('Cursor created')
+	try:
+		cur = conn.cursor()
+		message('Database cursor created')
+	except:
+		error('Faild to create database cursor')
 	return conn, cur
 
-def connection_destroy(conn, cur):
+def close_connection(conn, cur):
 	"""Destroy database connection"""
 	cur.close()
+	message('Database cursor closed')
 	conn.close()
+	message('Database connection closed')
 
 def database_init(cur, conn):
 	"""Drop existing schema and types and recreate them"""
-	# Drop existing schema and type
-	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE IF EXISTS \"status_setting\";')
-	conn.commit()
-	message('Schema wpv1 droped')
+	try:
+		# Drop existing schema and type
+		cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE IF EXISTS \"status_setting\";')
+		conn.commit()
+		message('Database schema wpv1 droped')
 
-	# Recreate schema and types
-	with open('CREATE_DB.sql', 'r') as my_file:
-		cur.execute(my_file.read())
-	conn.commit()
-	message('Schema wpv1 created')
+		# Recreate schema and types
+		with open('CREATE_DB.sql', 'r') as my_file:
+			cur.execute(my_file.read())
+		conn.commit()
+		message('Database schema wpv1 created')
 
-	# Insert example data
-	with open('DATA.sql', 'r') as my_file:
-		cur.execute(my_file.read())
-	conn.commit()
-	message('Data added')
+		# Insert example data
+		with open('DATA.sql', 'r') as my_file:
+			cur.execute(my_file.read())
+		conn.commit()
+		message('Database test data added')
 
-	# Set search path that I don't every time specify schema dot table
-	cur.execute('SET search_path TO wpv1')
-	conn.commit()
-	message('Set search_path to wpv1')
+		# Set search path that I don't every time specify schema dot table
+		cur.execute('SET search_path TO wpv1')
+		conn.commit()
+		message('Database search_path set to wpv1')
+	except:
+		error('Failed to initialize database data')
 
 def change_block_status(cur, height, status):
 	"""Change a block status to given status"""
-	cur.execute("""DO $$
-					BEGIN
-						IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
-						THEN UPDATE mined_blocks SET status = '%s' WHERE height = %s;
-						END IF;
-					END
-					$$ ;""",
-				(height, status, height))
+	try:
+		cur.execute("""DO $$
+						BEGIN
+							IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
+							THEN UPDATE mined_blocks SET status = '%s' WHERE height = %s;
+							END IF;
+						END
+						$$ ;""",
+					(height, status, height))
+		message('Change block ' + str(height) + ' status to ' + str(status))
+	except:
+		error('Faild to change block ' + str(height) + ' status to ' + str(status))
 
 def update_block_status(cur):
 	"""Update blocks statuses"""
+	
 	wallet_height = get_wallet_height()
 
 	# Get submit failed(status-0) and submit OK(status-1) blocks that are in a safe distance(10)
@@ -204,114 +263,154 @@ def update_block_status(cur):
 
 def wallet_rpc(s_method, d_params=None):
 	"""Call wallet RPC"""
-	d_headers = {'Content-Type': 'application/json'}
-	d_rpc_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
+	try:
+		d_headers = {'Content-Type': 'application/json'}
+		d_rpc_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
 
-	if d_params is not None:
-		d_rpc_input['params'] = d_params
+		if d_params is not None:
+			d_rpc_input['params'] = d_params
 
-	o_rsp = requests.post('http://' + SG_WALLET_RPC_ADDR + '/json_rpc',
-							data=json.dumps(d_rpc_input),
-							headers=d_headers,
-							timeout=60.0, #Wallet can be fairly slow for large requests
-							auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
+		message_wallet_rpc('req', d_rpc_input)
 
-	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
-		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
+		o_rsp = requests.post('http://' + SG_WALLET_RPC_ADDR + '/json_rpc',
+								data=json.dumps(d_rpc_input),
+								headers=d_headers,
+								timeout=60.0, #Wallet can be fairly slow for large requests
+								auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
 
-	d_jsn = o_rsp.json()
-	with open('d_jsn', 'a+') as f:
-		f.writelines('Inputs:\n')
-		f.writelines(json.dumps(d_rpc_input))
-		f.writelines('\n\n')
-		f.writelines('Response:\n')
-		f.writelines(str(d_jsn))
-		f.writelines('\n\n\n\n\n\n\n')
-	if 'error' in d_jsn:
-		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+		if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
+			raise RuntimeError('Wallet RPC HTTP Request error : ' + o_rsp.reason)
 
-	return d_jsn['result']
+		d_jsn = o_rsp.json()
+
+		message_wallet_rpc('res', d_jsn)
+
+		if 'error' in d_jsn:
+			raise RuntimeError('Wallet RPC wallet error: ' + d_jsn['error']['message'])
+
+		return d_jsn['result']
+	except RuntimeError as re:
+		error(re)
+		raise RuntimeError(re)
+	except KeyboardInterrupt:
+		print()
+		message('Bye!!!')
+		sys.exit()
+	except:
+		error('Wallet RPC error')
 
 def daemon_rpc(s_method, d_params=None):
-	d_headers = {'Content-Type': 'application/json'}
-	d_daemon_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
+	try:
+		d_headers = {'Content-Type': 'application/json'}
+		d_daemon_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
 
-	if d_params is not None:
-		d_daemon_input['params'] = d_params
+		if d_params is not None:
+			d_daemon_input['params'] = d_params
 
-	o_rsp = requests.post('http://' + SG_DAEMON_ADDR + '/json_rpc',
-							data=json.dumps(d_daemon_input),
-							headers=d_headers,
-							timeout=60.0)  #Wallet can be fairly slow for large requests
+		message_daemon_rpc('req', d_daemon_input)
 
-	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
-		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
+		o_rsp = requests.post('http://' + SG_DAEMON_ADDR + '/json_rpc',
+								data=json.dumps(d_daemon_input),
+								headers=d_headers,
+								timeout=60.0)  #Wallet can be fairly slow for large requests
 
-	d_jsn = o_rsp.json()
-	if 'error' in d_jsn:
-		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+		if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
+			raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
 
-	return d_jsn['result']
+		d_jsn = o_rsp.json()
+
+		message_daemon_rpc('res', d_jsn)
+
+		if 'error' in d_jsn:
+			raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+
+		return d_jsn['result']
+	except RuntimeError as re:
+		error(re)
+	except KeyboardInterrupt:
+		print()
+		message('Bye!!!')
+		sys.exit()
+	except:
+		error('Daemon RPC error')
 
 def get_user_wallet(cur, uid):
 	"""Get users wallet address"""
-	cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
-	return cur.fetchone()[0]
+	try:
+		cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
+		return cur.fetchone()[0]
+	except:
+		error('Failed to get user wallet address for user ' + str(uid))
 
 def record_credit(cur, blk_id, uid, credit):
 	"""Record calculated credit for a user"""
-	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)',
-					(blk_id, uid, credit))
+	try:
+		cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)',
+						(blk_id, uid, credit))
+		message('Record ' + str(credit) + ' credit(s) for user ' + str(uid))
+	except:
+		error('Failed to record ' + str(credit) + ' credit(s) for user ' + str(uid))
 
 def submit_payment(cur, uid, amount, txid, txtime, fee):
 	"""Submit payed payment"""
 	try:
 		cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)',
 							(uid, amount, txid, txtime, 'MONITORED', uid, fee, txid, txtime, 'FEE'))
+		message('Record ' + str(amount) + ' payment(s) for user ' + str(uid))
 		return True
 	except:
+		error('FAiled to record ' + str(amount) + ' payment(s) for user ' + str(uid))
 		return False
 
 def get_balances_and_thresholds(cur):
 	"""Get users sum of credits, sum of payment and threshold"""
-	cur.execute("""SELECT
-						uid,
-						creSum,
-						paySum,
-						payTh.payment_threshold
-					FROM (SELECT
-						cuid AS uid,
-						creRes.creSum,
-						COALESCE(payRes.paySum, 0) AS paySum
+	try:
+		cur.execute("""SELECT
+							uid,
+							creSum,
+							paySum,
+							payTh.payment_threshold
 						FROM (SELECT
-									COALESCE(SUM(amount), 0) AS creSum,
-									uid AS cuid
-								FROM wpv1.credits
-								GROUP BY cuid) AS creRes
+							cuid AS uid,
+							creRes.creSum,
+							COALESCE(payRes.paySum, 0) AS paySum
+							FROM (SELECT
+										COALESCE(SUM(amount), 0) AS creSum,
+										uid AS cuid
+									FROM wpv1.credits
+									GROUP BY cuid) AS creRes
+							LEFT JOIN (SELECT
+											COALESCE(SUM(amount), 0) AS paySum,
+											uid AS puid
+										FROM wpv1.payments
+										WHERE status != 'FAILED'
+										GROUP BY puid) AS payRes
+							ON puid = cuid) AS balance
 						LEFT JOIN (SELECT
-										COALESCE(SUM(amount), 0) AS paySum,
-										uid AS puid
-									FROM wpv1.payments
-									GROUP BY puid) AS payRes
-						ON puid = cuid) AS balance
-					LEFT JOIN (SELECT
-									uid AS tuid,
-									payment_threshold
-								FROM users) AS payTh
-									ON tuid = uid""")
+										uid AS tuid,
+										payment_threshold
+									FROM users) AS payTh
+										ON tuid = uid""")
 
-	results = cur.fetchall()
-	return_value = []
+		results = cur.fetchall()
+		return_value = []
 
-	for result in results:
-		# Calculate diffrence of sum of credits and sum of payments for each user
-		return_value.append([result[0], result[1] - result[2], result[3]])
+		for result in results:
+			# Calculate diffrence of sum of credits and sum of payments for each user
+			return_value.append([result[0], result[1] - result[2], result[3]])
 
-	return return_value
+		return return_value
+	except Exception as e:
+		print(e)
+		error('Failed to get balances and thresholds')
 
 def update_status(cur, txid, status):
 	"""Change payment status to SUCCESS or FAILED or MONITORED"""
-	cur.execute("UPDATE payments SET status = '%s' WHERE txid = %s", (status, txid))
+	try:
+		cur.execute("UPDATE payments SET status = '%s' WHERE txid = %s", (status, txid))
+		message('Update payment status to ' + str(status) + ' for txid ' + str(txid))
+	except:
+		error('Failed to update payment status to ' + str(status) + ' for txid ' + str(txid))
 
 def update_payment_status(cur):
 	"""Update MONITORED payments to SUCCESS or FAILED"""
@@ -450,8 +549,11 @@ def make_N_shares(cur):
 
 def get_block_id(cur, height):
 	"""Get block id of height"""
-	cur.execute("""SELECT blk_id FROM mined_blocks WHERE height=%s""", (height,))
-	return cur.fetchone()[0]
+	try:
+		cur.execute("""SELECT blk_id FROM mined_blocks WHERE height=%s""", (height,))
+		return cur.fetchone()[0]
+	except:
+		error('Failed to get blk_id for block ' + str(height))
 
 def calculate_credit(cur):
 	"""Calculate credits using PPLNS system"""
@@ -677,7 +779,10 @@ def wait_until_new_block(cur):
 
 	LAST_BLOCK = result
 
+	message('New block mined')
+
 try:
+	message('Hello!')
 	CONN = None
 	CURS = None
 	CONN, CURS = connection_init()
@@ -712,4 +817,4 @@ except RuntimeError as my_exception:
 	traceback.print_exception(*sys.exc_info())
 
 else:
-	connection_destroy(CONN, CURS)
+	close_connection(CONN, CURS)
