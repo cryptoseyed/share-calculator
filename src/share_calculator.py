@@ -35,6 +35,7 @@ FEE_PER_RING_MEMBER = SETTING['FEE_PER_RING_MEMBER']
 TRANSFER_RING_SIZE = SETTING['TRANSFER_RING_SIZE']
 TRANSFER_PRIORITY = SETTING['TRANSFER_PRIORITY']
 TRANSFER_MAX_RECIPIENTS = SETTING['TRANSFER_MAX_RECIPIENTS']
+PAYMENT_INTERVAL = SETTING['PAYMENT_INTERVAL']
 
 def message(string):
 	"""Print out messages"""
@@ -767,20 +768,6 @@ def get_wallet_height():
 	"""Get the wallet's current block height"""
 	return wallet_rpc('getheight')['height']
 
-def wait_until_new_block(cur):
-	"""Wait until new block mined"""
-	global LAST_BLOCK
-	result = LAST_BLOCK
-	while result == LAST_BLOCK:
-		cur.execute("""SELECT MAX(blk_id) FROM mined_blocks""")
-		result = cur.fetchone()[0]
-
-		time.sleep(SLEEP_TIME/2)
-
-	LAST_BLOCK = result
-
-	message('New block mined')
-
 try:
 	message('Hello!')
 	CONN = None
@@ -805,7 +792,7 @@ try:
 
 		print()
 
-		wait_until_new_block(CURS)
+		time.sleep(PAYMENT_INTERVAL)
 
 except KeyboardInterrupt:
 	print()
