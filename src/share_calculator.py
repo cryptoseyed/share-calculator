@@ -32,6 +32,9 @@ PSQL_PASSWORD = SETTING['psqlPass']
 LAST_BLOCK = 0
 FEE_PER_KB = SETTING['FEE_PER_KB']
 FEE_PER_RING_MEMBER = SETTING['FEE_PER_RING_MEMBER']
+TRANSFER_RING_SIZE = SETTING['TRANSFER_RING_SIZE']
+TRANSFER_PRIORITY = SETTING['TRANSFER_PRIORITY']
+TRANSFER_MAX_RECIPIENTS = SETTING['TRANSFER_MAX_RECIPIENTS']
 
 def message(string):
 	"""Print out messages"""
@@ -218,8 +221,12 @@ def wallet_rpc(s_method, d_params=None):
 
 	d_jsn = o_rsp.json()
 	with open('d_jsn', 'a+') as f:
+		f.writelines('Inputs:\n')
+		f.writelines(json.dumps(d_rpc_input))
+		f.writelines('\n\n')
+		f.writelines('Response:\n')
 		f.writelines(str(d_jsn))
-		f.writelines('\n')
+		f.writelines('\n\n\n\n\n\n\n')
 	if 'error' in d_jsn:
 		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
 
@@ -259,7 +266,7 @@ def record_credit(cur, blk_id, uid, credit):
 def submit_payment(cur, uid, amount, txid, txtime, fee):
 	"""Submit payed payment"""
 	try:
-		cur.execute("""INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)""",
+		cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)',
 							(uid, amount, txid, txtime, 'MONITORED', uid, fee, txid, txtime, 'FEE'))
 		return True
 	except:
@@ -545,7 +552,7 @@ def pay_payments(cur):
 														'address': user_wallet})
 			destinations_uid[destinations_counter-1].append({'uid': uid, 'payment_id': '', 'fee': 0})
 
-		if len(destinations[destinations_counter-1]) == 15:
+		if len(destinations[destinations_counter-1]) == TRANSFER_MAX_RECIPIENTS:
 			destinations_counter += 1
 
 	if TESTING_MODE is True:
@@ -613,11 +620,15 @@ def process_payment(cur, dest, uids):
 
 				if uids[i][0]['payment_id'] == '':
 					json_data = wallet_rpc('transfer',
-											{'destinations': dest[i]}) # 'get_tx_key': True
+											{'destinations': dest[i], \
+												'priority': TRANSFER_PRIORITY, \
+												'mixin': TRANSFER_RING_SIZE - 1}) # 'get_tx_key': True
 				else:
 					json_data = wallet_rpc('transfer',
 											{'destinations': dest[i], \
-												'payment_id': uids[i][0]['payment_id']}) # 'get_tx_key': True
+												'payment_id': uids[i][0]['payment_id'], \
+												'priority': TRANSFER_PRIORITY, \
+												'mixin': TRANSFER_RING_SIZE - 1}) # 'get_tx_key': True
 
 				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
 
@@ -643,7 +654,7 @@ def process_payment(cur, dest, uids):
 								' to ' + str(dest[i][j]['address']) + \
 								' for user ' + str(uids[i][j]['uid']) + '.')
 
-			except RuntimeError as re:
+			except RuntimeError:
 				for j in range(len(dest[i])):
 					error('Faild to pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
 							' to ' + str(dest[i][j]['address']) + \
