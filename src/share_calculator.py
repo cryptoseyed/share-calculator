@@ -106,7 +106,7 @@ def connection_init():
 								port="5432")
 		message('Database connection created')
 	except:
-		error('Faild to creat database connection')
+		error('Failed to creat database connection')
 		sys.exit()
 
 	conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
@@ -114,7 +114,7 @@ def connection_init():
 		cur = conn.cursor()
 		message('Database cursor created')
 	except:
-		error('Faild to create database cursor')
+		error('Failed to create database cursor')
 	return conn, cur
 
 def close_connection(conn, cur):
@@ -164,7 +164,7 @@ def change_block_status(cur, height, status):
 					(height, status, height))
 		message('Change block ' + str(height) + ' status to ' + str(status))
 	except:
-		error('Faild to change block ' + str(height) + ' status to ' + str(status))
+		error('Failed to change block ' + str(height) + ' status to ' + str(status))
 
 def update_block_status(cur):
 	"""Update blocks statuses"""
@@ -683,8 +683,8 @@ def process_payment(cur, dest, uids):
 		transfer_info = {}
 
 		if TESTING_MODE is True:
-			bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=24, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
-			fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=1)
+			bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=TRANSFER_RING_SIZE - 1, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
+			fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=TRANSFER_PRIORITY)
 
 			fee_for_each_one = floor(fee/len(dest[i]))
 
@@ -710,8 +710,8 @@ def process_payment(cur, dest, uids):
 						' for user ' + str(uids[i][j]['uid']) + '.')
 		else:
 			try:
-				bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=24, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
-				fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=1)
+				bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=TRANSFER_RING_SIZE - 1, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
+				fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=TRANSFER_PRIORITY)
 
 				fee_for_each_one = floor(fee/len(dest[i]))
 
@@ -759,7 +759,7 @@ def process_payment(cur, dest, uids):
 
 			except RuntimeError:
 				for j in range(len(dest[i])):
-					error('Faild to pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+					error('Failed to pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
 							' to ' + str(dest[i][j]['address']) + \
 							' for user ' + str(uids[i][j]['uid']) + '.')
 		time.sleep(1)
