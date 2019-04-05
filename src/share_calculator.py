@@ -433,7 +433,6 @@ def update_payment_status(cur):
 	# For each transaction
 	for txid in txids:
 		txid = txid[0]
-		is_in_list = False
 		tx_height = 0
 		for transfer in transfers:
 			if transfer['txid'] == txid[0]:
@@ -448,8 +447,8 @@ def update_payment_status(cur):
 				# If transaction is in list it successed else it failed
 				if is_in_list is True:
 					update_status(cur, txid, 'SUCCESS')
-				else:
-					update_status(cur, txid, 'FAILED')
+		else:
+			update_status(cur, txid, 'FAILED')
 
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
