@@ -111,3 +111,24 @@ settings.py
 
 # Data
 DATA.sql
+
+# CSV
+*.csv
+
+# Log
+log.txt
+Payments
+
+# Document
+_build
+_static
+_templates
+conf.py
+index.rst
+make.bat
+Makefile
+
+Pipfile.lock
+
+fee
+d_jsn

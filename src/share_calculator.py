@@ -3,11 +3,6 @@ import sys
 import datetime
 import time
 import json
-from os import urandom
-from binascii import hexlify
-
-from operator import itemgetter
-from itertools import groupby
 
 import requests
 
@@ -15,18 +10,17 @@ import psycopg2
 
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from colorama import init as colorama_init, Fore
+from pprint import pprint
+from math import floor
 
 from settings import SETTING
 
 
 colorama_init(autoreset=True)
 
-
-START_HIGHT = SETTING['START_HIGHT']
-WORKING_HIGHT = SETTING['WORKING_HIGHT']
+# Read settings from settings file
 SLEEP_TIME = SETTING['SLEEP_TIME']
-BLOCK_REWARD = SETTING['BLOCK_REWARD']
-POOL_FEE = SETTING['POOL_FEE']
+POOL_FEE = SETTING['POOL_FEE'] # In %
 SG_WALLET_RPC_ADDR = SETTING['SG_WALLET_RPC_ADDR_TESTNET']
 TG_WALLET_RPC_AUTH = SETTING['TG_WALLET_RPC_AUTH_TESTNET']
 SG_DAEMON_ADDR = SETTING['SG_DAEMON_ADDR_TESTNET']
@@ -35,298 +29,746 @@ WALLET_NAME = SETTING['WALLET_NAME']
 TESTING_MODE = SETTING['TESTING_MODE']
 PSQL_USERNAME = SETTING['psqlUser']
 PSQL_PASSWORD = SETTING['psqlPass']
-
+LAST_BLOCK = 0
+FEE_PER_KB = SETTING['FEE_PER_KB']
+FEE_PER_RING_MEMBER = SETTING['FEE_PER_RING_MEMBER']
+TRANSFER_RING_SIZE = SETTING['TRANSFER_RING_SIZE']
+TRANSFER_PRIORITY = SETTING['TRANSFER_PRIORITY']
+TRANSFER_MAX_RECIPIENTS = SETTING['TRANSFER_MAX_RECIPIENTS']
+PAYMENT_INTERVAL = SETTING['PAYMENT_INTERVAL']
 
 def message(string):
+	"""Print out messages"""
 	string = str(string)
-	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
-	+ Fore.GREEN + 'Message: ' + Fore.RESET + string)
+	print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ Fore.GREEN + ' Message - ' + Fore.RESET + string)
+	with open('share_claculator.log', 'a+') as f:
+		f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ ' Message - ' + string + '\n')
+
+def message_wallet_rpc(REQorRES, data):
+	"""Print out messages for wallet RPC calls"""
+	if REQorRES == 'req':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Request] Wallet RPC' + Fore.RESET)
+	elif REQorRES == 'res':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Response] Wallet RPC' + Fore.RESET)
+	else:
+		return
+	# pprint(data)
+	with open('Wallet_RPC_Calls.log', 'a+') as f:
+		if REQorRES == 'req':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Request] Wallet RPC' + '\n')
+		elif REQorRES == 'res':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Response] Wallet RPC' + '\n')
+		pprint(data, f)
+		f.write('\n')
+
+def message_daemon_rpc(REQorRES, data):
+	"""Print out messages for daemon RPC calls"""
+	if REQorRES == 'req':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Request] Daemon RPC' + Fore.RESET)
+	elif REQorRES == 'res':
+		print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+		+ Fore.GREEN + ' [Response] Daemon RPC' + Fore.RESET)
+	else:
+		return
+	# pprint(data)
+	with open('Daemon_RPC_Calls.log', 'a+') as f:
+		if REQorRES == 'req':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Request] Daemon RPC' + '\n')
+		elif REQorRES == 'res':
+			f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+			+ ' [Response] Daemon RPC' + '\n')
+		pprint(data, f)
+		f.write('\n')
 
 def error(string):
+	"""Print out error"""
 	string = str(string)
-	print('[' + datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') + '] '\
-	+ Fore.RED + 'Error: ' + Fore.RESET + string)
+	print(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ Fore.RED + ' Error - ' + Fore.RESET + string)
+	with open('share_claculator.log', 'a+') as f:
+		f.write(datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S') \
+	+ ' Error - ' + string + '\n')
 
 def connection_init():
-	conn = psycopg2.connect(\
-				user=PSQL_USERNAME, \
-				password=PSQL_PASSWORD, \
-				host="localhost", \
-				port="5432")
-	message('Connection created')
+	"""Create database connection"""
+	try:
+		conn = psycopg2.connect(user=PSQL_USERNAME,
+								password=PSQL_PASSWORD,
+								host="localhost",
+								port="5432")
+		message('Database connection created')
+	except:
+		error('Failed to creat database connection')
+		sys.exit()
 
 	conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-	cur = conn.cursor()
-	message('Cursor created')
+	try:
+		cur = conn.cursor()
+		message('Database cursor created')
+	except:
+		error('Failed to create database cursor')
 	return conn, cur
 
+def close_connection(conn, cur):
+	"""Destroy database connection"""
+	cur.close()
+	message('Database cursor closed')
+	conn.close()
+	message('Database connection closed')
+
 def database_init(cur, conn):
-	cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE IF EXISTS \"status_setting\";')
-	conn.commit()
-	message('Schema wpv1 droped')
+	"""Drop existing schema and types and recreate them"""
+	try:
+		# Drop existing schema and type
+		cur.execute('DROP SCHEMA IF EXISTS wpv1 cascade; DROP TYPE IF EXISTS \"status_setting\";')
+		conn.commit()
+		message('Database schema wpv1 droped')
 
-	with open('CREATE_DB.sql', 'r') as my_file:
-		cur.execute(my_file.read())
-	conn.commit()
-	message('Schema wpv1 created')
+		# Recreate schema and types
+		with open('CREATE_DB.sql', 'r') as my_file:
+			cur.execute(my_file.read())
+		conn.commit()
+		message('Database schema wpv1 created')
 
-	with open('DATA.sql', 'r') as my_file:
-		cur.execute(my_file.read())
-	conn.commit()
-	message('Data added')
+		# Insert example data
+		with open('DATA.sql', 'r') as my_file:
+			cur.execute(my_file.read())
+		conn.commit()
+		message('Database test data added')
 
-	cur.execute('SET search_path TO wpv1')
-	conn.commit()
-	message('Set search_path to wpv1')
+		# Set search path that I don't every time specify schema dot table
+		cur.execute('SET search_path TO wpv1')
+		conn.commit()
+		message('Database search_path set to wpv1')
+	except:
+		error('Failed to initialize database data')
 
-def get_block_status(cur, height):
-	cur.execute('SELECT status FROM mined_blocks WHERE height=%s', (height, ))
-	result = cur.fetchone()
+def change_block_status(cur, height, status):
+	"""Change a block status to given status"""
+	try:
+		cur.execute("""DO $$
+						BEGIN
+							IF EXISTS(SELECT * FROM mined_blocks WHERE height = %s)
+							THEN UPDATE mined_blocks SET status = '%s' WHERE height = %s;
+							END IF;
+						END
+						$$ ;""",
+					(height, status, height))
+		message('Change block ' + str(height) + ' status to ' + str(status))
+	except:
+		error('Failed to change block ' + str(height) + ' status to ' + str(status))
 
-	if result is not None:
-		result = result[0]
-	return result
+def update_block_status(cur):
+	"""Update blocks statuses"""
+	
+	wallet_height = get_wallet_height()
 
-def daemon(s_method, d_params=None):
-	d_headers = {'Content-Type': 'application/json'}
-	d_daemon_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
+	# Get submit failed(status-0) and submit OK(status-1) blocks that are in a safe distance(10)
+	cur.execute('SELECT height, txid FROM mined_blocks WHERE (status=1 OR status=0) AND height <= %s',
+				(wallet_height-10,))
+	blocks = cur.fetchall()
 
-	if d_params is not None:
-		d_daemon_input['params'] = d_params
+	# For each status-0 or status-1 block
+	for block in blocks:
+		height = block[0]
+		# Get its transactions
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
+												'in': True, 'pending': True,
+												'failed': True, 'filter_by_height': True,
+												'min_height': height, 'max_height': height})
+		temp = []
+		if 'pool' in transfers:
+			temp += transfers['pool']
+		if 'out' in transfers:
+			temp += transfers['out']
+		if 'in' in transfers:
+			temp += transfers['in']
+		if 'pending' in transfers:
+			temp += transfers['pending']
+		if 'failed' in transfers:
+			temp += transfers['failed']
+		transfers = temp
 
-	o_rsp = requests.post(\
-		'http://' + SG_DAEMON_ADDR + '/json_rpc', \
-		data=json.dumps(d_daemon_input), \
-		headers=d_headers, \
-		timeout=60.0)  #Wallet can be fairly slow for large requests
+		# If the block txid seen update block status to -1(Confirmed orphan) else to 2(Transaction seen)
+		block_txid = block[1]
+		flag = False
 
-	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
-		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
+		for t in transfers:
+			if t['txid'] == block_txid:
+				flag = True
+				break
 
-	d_jsn = o_rsp.json()
-	if 'error' in d_jsn:
-		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+		if flag == True:
+			change_block_status(cur, height, 2)
+		else:
+			change_block_status(cur, height, -1)
 
-	return d_jsn['result']
+	# Get status-2 blocks that are in safe distance
+	cur.execute('SELECT height, txid FROM mined_blocks WHERE status=2 AND height <= %s',
+				(wallet_height-60,))
+	blocks = cur.fetchall()
+
+	# For each status-2 block
+	for block in blocks:
+		height = block[0]
+		# Q: Is it necessary to get block-2 tansactions?
+		transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True,
+												'in': True, 'pending': True,
+												'failed': True, 'filter_by_height': True,
+												'min_height': height, 'max_height': height})
+		temp = []
+		if 'pool' in transfers:
+			temp += transfers['pool']
+		if 'out' in transfers:
+			temp += transfers['out']
+		if 'in' in transfers:
+			temp += transfers['in']
+		if 'pending' in transfers:
+			temp += transfers['pending']
+		if 'failed' in transfers:
+			temp += transfers['failed']
+		transfers = temp
+
+		# Change block status-2 blocks status's to 3 if the block txid seen
+		block_txid = block[1]
+		flag = False
+
+		for t in transfers:
+			if t['txid'] == block_txid:
+				flag = True
+				break
+
+		if flag == True:
+			change_block_status(cur, height, 3)
+		else:
+			change_block_status(cur, height, -1)
+
+	# Get status-3 blocks
+	cur.execute('SELECT height FROM mined_blocks WHERE status=3')
+	heights = cur.fetchall()
+
+	status_3_blocks = []
+
+	for height in heights:
+		status_3_blocks.append(height[0])
+
+	return status_3_blocks
 
 def wallet_rpc(s_method, d_params=None):
-	d_headers = {'Content-Type': 'application/json'}
-	d_rpc_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
+	"""Call wallet RPC"""
+	try:
+		d_headers = {'Content-Type': 'application/json'}
+		d_rpc_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
 
-	if d_params is not None:
-		d_rpc_input['params'] = d_params
+		if d_params is not None:
+			d_rpc_input['params'] = d_params
 
-	o_rsp = requests.post(\
-		'http://' + SG_WALLET_RPC_ADDR + '/json_rpc', \
-		data=json.dumps(d_rpc_input), \
-		headers=d_headers, \
-		timeout=60.0, #Wallet can be fairly slow for large requests
-		auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
+		message_wallet_rpc('req', d_rpc_input)
 
-	if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
-		raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
+		o_rsp = requests.post('http://' + SG_WALLET_RPC_ADDR + '/json_rpc',
+								data=json.dumps(d_rpc_input),
+								headers=d_headers,
+								timeout=60.0, #Wallet can be fairly slow for large requests
+								auth=requests.auth.HTTPDigestAuth(*TG_WALLET_RPC_AUTH))
 
-	d_jsn = o_rsp.json()
-	if 'error' in d_jsn:
-		raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+		if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
+			raise RuntimeError('Wallet RPC HTTP Request error : ' + o_rsp.reason)
 
-	return d_jsn['result']
+		d_jsn = o_rsp.json()
 
-def valid_shares_between_block(cur, height):
-	prev_time = 0
-	if height != START_HIGHT:
-		cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height - 1, ))
-		prev_time = cur.fetchone()
+		message_wallet_rpc('res', d_jsn)
 
-		prev_time = prev_time[0]
+		if 'error' in d_jsn:
+			raise RuntimeError('Wallet RPC wallet error: ' + d_jsn['error']['message'])
 
-	cur.execute('SELECT time FROM mined_blocks WHERE height=%s', (height, ))
-	cure_time = cur.fetchone()[0]
+		return d_jsn['result']
+	except RuntimeError as re:
+		error(re)
+		raise RuntimeError(re)
+	except KeyboardInterrupt:
+		print()
+		message('Bye!!!')
+		sys.exit()
+	except:
+		error('Wallet RPC error')
 
-	cur.execute('SELECT * FROM valid_shares WHERE time BETWEEN %s AND %s', \
-					(prev_time + 1, cure_time))
+def daemon_rpc(s_method, d_params=None):
+	try:
+		d_headers = {'Content-Type': 'application/json'}
+		d_daemon_input = {"jsonrpc": "2.0", "id": "0", "method" :  s_method}
 
-	return cur.fetchall()
+		if d_params is not None:
+			d_daemon_input['params'] = d_params
 
-def get_block_id(cur, height):
-	cur.execute('SELECT blk_id from mined_blocks WHERE height=%s', (height, ))
-	return cur.fetchone()[0]
+		message_daemon_rpc('req', d_daemon_input)
+
+		o_rsp = requests.post('http://' + SG_DAEMON_ADDR + '/json_rpc',
+								data=json.dumps(d_daemon_input),
+								headers=d_headers,
+								timeout=60.0)  #Wallet can be fairly slow for large requests
+
+		if o_rsp.status_code != requests.codes.ok: # pylint: disable=maybe-no-member
+			raise RuntimeError('HTTP Request error : ' + o_rsp.reason)
+
+		d_jsn = o_rsp.json()
+
+		message_daemon_rpc('res', d_jsn)
+
+		if 'error' in d_jsn:
+			raise RuntimeError("Wallet error: " + d_jsn['error']['message'])
+
+		return d_jsn['result']
+	except RuntimeError as re:
+		error(re)
+	except KeyboardInterrupt:
+		print()
+		message('Bye!!!')
+		sys.exit()
+	except:
+		error('Daemon RPC error')
 
 def get_user_wallet(cur, uid):
-	cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
-	return cur.fetchone()[0]
+	"""Get users wallet address"""
+	try:
+		cur.execute('SELECT wallet FROM users WHERE uid=%s', (uid, ))
+		return cur.fetchone()[0]
+	except:
+		error('Failed to get user wallet address for user ' + str(uid))
 
 def record_credit(cur, blk_id, uid, credit):
-	cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)', \
-					(blk_id, uid, credit))
+	"""Record calculated credit for a user"""
+	try:
+		cur.execute('INSERT INTO credits (blk_id, uid, amount) VALUES (%s, %s, %s)',
+						(blk_id, uid, credit))
+		message('Record ' + str(credit) + ' credit(s) for user ' + str(uid))
+	except:
+		error('Failed to record ' + str(credit) + ' credit(s) for user ' + str(uid))
 
-def get_user_payment_threshold(cur, uid):
-	cur.execute('SELECT payment_threshold FROM users WHERE uid=%s', (uid,))
-	return cur.fetchone()[0]
-
-def get_user_credit(cur, uid):
-	cur.execute('SELECT amount FROM credits WHERE uid=%s', (uid,))
-	return cur.fetchall()
-
-def get_user_payment(cur, uid):
-	cur.execute('SELECT amount FROM payments WHERE uid=%s', (uid,))
-	return cur.fetchall()
-
-def submit_payment(cur, uid, amount, txid, txtime):
-	cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s)', \
-						(uid, amount, txid, txtime, 'MONITORED'))
+def submit_payment(cur, uid, amount, txid, txtime, fee):
+	"""Submit payed payment"""
+	try:
+		cur.execute('INSERT INTO payments (uid, amount, txid, time, status) VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)',
+							(uid, amount, txid, txtime, 'MONITORED', uid, fee, txid, txtime, 'FEE'))
+		message('Record ' + str(amount) + ' payment(s) for user ' + str(uid))
+		return True
+	except:
+		error('FAiled to record ' + str(amount) + ' payment(s) for user ' + str(uid))
+		return False
 
 def get_balances_and_thresholds(cur):
-	cur.execute("""SELECT
-						uid,
-						creSum,
-						paySum,
-						payTh.payment_threshold
-					FROM (SELECT
-						cuid AS uid,
-						creRes.creSum,
-						COALESCE(payRes.paySum, 0) AS paySum
-					FROM (SELECT
-						COALESCE(SUM(amount), 0) AS creSum,
-						uid AS cuid
-					FROM wpv1.credits
-					GROUP BY cuid) AS creRes
-					LEFT JOIN (SELECT
-						COALESCE(SUM(amount), 0) AS paySum,
-						uid AS puid
-					FROM wpv1.payments
-					GROUP BY puid) AS payRes
-						ON puid = cuid) AS balance
-					LEFT JOIN (SELECT
-						uid AS tuid,
-						payment_threshold
-					FROM users) AS payTh
-						ON tuid = uid""")
+	"""Get users sum of credits, sum of payment and threshold"""
+	try:
+		cur.execute("""SELECT
+							uid,
+							creSum,
+							paySum,
+							payTh.payment_threshold
+						FROM (SELECT
+							cuid AS uid,
+							creRes.creSum,
+							COALESCE(payRes.paySum, 0) AS paySum
+							FROM (SELECT
+										COALESCE(SUM(amount), 0) AS creSum,
+										uid AS cuid
+									FROM wpv1.credits
+									GROUP BY cuid) AS creRes
+							LEFT JOIN (SELECT
+											COALESCE(SUM(amount), 0) AS paySum,
+											uid AS puid
+										FROM wpv1.payments
+										WHERE status != 'FAILED'
+										GROUP BY puid) AS payRes
+							ON puid = cuid) AS balance
+						LEFT JOIN (SELECT
+										uid AS tuid,
+										payment_threshold
+									FROM users) AS payTh
+										ON tuid = uid""")
 
-	results = cur.fetchall()
-	return_value = []
+		results = cur.fetchall()
+		return_value = []
 
-	for result in results:
-		return_value.append([result[0], result[1] - result[2], result[3]])
+		for result in results:
+			# Calculate diffrence of sum of credits and sum of payments for each user
+			return_value.append([result[0], result[1] - result[2], result[3]])
 
-	return return_value
-
-def get_new_payments(cur):
-	balances_and_thresholds = get_balances_and_thresholds(cur)
-
-	new_payments = []
-
-	for item in balances_and_thresholds:
-		if item[1] - item[2] >= 0:
-			new_payments.append([item[0], int(item[1] / item[2]) * item[2]])
-
-	return new_payments
+		return return_value
+	except Exception as e:
+		print(e)
+		error('Failed to get balances and thresholds')
 
 def update_status(cur, txid, status):
-	cur.execute("UPDATE payments SET status = '%s' WHERE txid = %s", (status, txid))
+	"""Change payment status to SUCCESS or FAILED or MONITORED"""
+	try:
+		cur.execute("UPDATE payments SET status = '%s' WHERE txid = %s", (status, txid))
+		message('Update payment status to ' + str(status) + ' for txid ' + str(txid))
+	except:
+		error('Failed to update payment status to ' + str(status) + ' for txid ' + str(txid))
 
-def get_transfer_height(txid):
-	return wallet_rpc('get_transfer_by_txid', {'txid': txid})['transfer']['height']
+def update_payment_status(cur):
+	"""Update MONITORED payments to SUCCESS or FAILED"""
+	current_block_height = get_wallet_height()
 
-def get_current_block_height():
-	return wallet_rpc('getheight')['height']
-
-def check_payment_status(cur):
-	current_block_height = get_current_block_height()
-
+	# Get MONITORED payments
 	cur.execute('SELECT txid FROM payments WHERE status = \'MONITORED\'')
 	txids = cur.fetchall()
 
+	# Get outgoing and daemon's transaction pool transfers
 	transfers = wallet_rpc('get_transfers', {'pool': True, 'out': True})
-	transfers = transfers['pool'] + transfers['out']
-	wallet_transfers = {}
-	for transfer in transfers:
-		wallet_transfers[transfer['txid']] = transfer['height']
+	temp = []
+	if 'out' in transfers:
+		temp += transfers['out']
+	if 'pool' in transfers:
+		temp += transfers['pool']
+	transfers = temp
 
+	# For each transaction
 	for txid in txids:
 		txid = txid[0]
 		tx_height = 0
-		if txid in wallet_transfers:
-			tx_height = wallet_transfers[txid]
-			if tx_height != 0:
-				if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
+		for transfer in transfers:
+			if transfer['txid'] == txid[0]:
+				is_in_list = True
+				tx_height = transfer['height']
+				break
+
+		if tx_height != 0:
+			# If it is in a safe distance
+			if current_block_height - tx_height >= CHANGE_STATUS_TO_SUCCESS_LIMIT:
+
+				# If transaction is in list it successed else it failed
+				if is_in_list is True:
 					update_status(cur, txid, 'SUCCESS')
 		else:
 			update_status(cur, txid, 'FAILED')
 
 	message('Change status to success in height ' + str(current_block_height) + ' completed')
 
-def calculate_credit(cur, height):
+def make_N_shares(cur):
+	"""Find last N shares based on PPLNS system"""
+	cur.execute("""SELECT height, time 
+					FROM wpv1.mined_blocks 
+					WHERE status=3 
+					ORDER BY time""")
+	times = cur.fetchall()
+	temp = []
+	for t in times:
+		block_temp = [t[0], t[1]]
+		daemon_responce = daemon_rpc('get_block', {'height': t[0]})
+		block_temp.append(daemon_responce['block_header']['difficulty']*2)
+		block_temp.append(daemon_responce['block_header']['reward'])
+		temp.append(block_temp)
+	times = temp
+	retval = {}
+	for t in times:
+		flag = False
+		limiter = 1
+		last_result = 0
+		result_flag = False
+		limiter_checker = 10
+		while flag is False:
+			cur.execute("""SELECT COALESCE(SUM(temp2.sum), 0) AS sum
+							FROM
+								(SELECT uid, SUM(count) 
+								FROM
+									(SELECT uid, count 
+									FROM wpv1.valid_shares 
+									WHERE time <= %s
+									ORDER BY TIME DESC LIMIT %s) AS temp 
+								GROUP BY uid) AS temp2""", (t[1], limiter))
+			result = cur.fetchone()
 
-	valid_shares = valid_shares_between_block(cur, height)
+			if result[0] == last_result:
+				limiter_checker -= 1
+				if limiter_checker == 0:
+					flag = True
+					result_flag = True
+			else:
+				limiter_checker = 10
 
-	valid_shares.sort(key=lambda x: int(x[1]))
-	user_total_valid_share_in_block = []
-	total_valid_share_in_block = 0
+			last_result = result[0]
 
-	for elt, items in groupby(valid_shares, itemgetter(1)):
-		user_valid_shares_count = 0
-		for i in items:
-			user_valid_shares_count += int(i[3])
-		total_valid_share_in_block += user_valid_shares_count
-		user_total_valid_share_in_block.append({'uid': elt, 'valid_shares': user_valid_shares_count})
+			if result[0] >= t[2]:
+				flag = True
+			elif result[0] == 0:
+				limiter = 0
+				break
+			else:
+				limiter += 1
 
-	blk_id = get_block_id(cur, height)
+		cur.execute("""SELECT uid, count
+						FROM wpv1.valid_shares 
+						WHERE time <= %s
+						ORDER BY TIME DESC LIMIT %s""", (t[1], limiter))
+	
+		result = cur.fetchall()
 
-	for i, _ in enumerate(user_total_valid_share_in_block):
-		user_total_valid_share_in_block[i]['credit'] = \
-		user_total_valid_share_in_block[i]['valid_shares'] * \
-		(BLOCK_REWARD * (1 - POOL_FEE) / total_valid_share_in_block)
+		counter = 0
 
-		record_credit(cur, blk_id, user_total_valid_share_in_block[i]['uid'], \
-							user_total_valid_share_in_block[i]['credit'])
-
-	message('Block ' + str(height) + ' valid shares calculated')
-
-def pay_payments(cur, new_payments):
-	valid_payment_message = False
-
-	for new_payment in new_payments:
-		valid_payment_message = True
-
-		destinations = []
-
-		if new_payment != 0:
-
-			user_wallet = get_user_wallet(cur, new_payment[0])
-
-			destinations.append({'amount': new_payment[1], \
-								'address': user_wallet})
-
-			if destinations != []:
-				json_data = {}
-				transfer_info = {}
-
-				txid = hexlify(urandom(32)).decode()
-
-				if TESTING_MODE is True:
-					json_data['tx_hash'] = 'TEST'
-					transfer_info['transfer'] = {}
-					transfer_info['transfer']['timestamp'] = 1536234479
+		retval[t[0]] = {}
+		if result_flag is False:
+			for i in result:
+				if str(i[0]) not in retval[t[0]]:
+					retval[t[0]][str(i[0])] = 0
+				if counter + i[1] > t[2]:
+					retval[t[0]][str(i[0])] += t[2] - counter # i[1] - ((counter + i[1]) - N)
 				else:
-					json_data = wallet_rpc('transfer', \
-											{'destinations': destinations, 'payment_id': txid}) # 'get_tx_key': True
-					transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+					retval[t[0]][str(i[0])] += i[1]
+					counter += i[1]
 
-				submit_payment(cur, new_payment[0], new_payment[1], json_data['tx_hash'], \
-								transfer_info['transfer']['timestamp'])
+			for k in retval[t[0]]:
+				retval[t[0]][k] = int(((t[3])*(retval[t[0]][k]/t[2]))*(1-(POOL_FEE/100)))
+				message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
+						+ ' for user ' + k + '.')
+		else:
+			for i in result:
+				if str(i[0]) not in retval[t[0]]:
+					retval[t[0]][str(i[0])] = 0
+				if counter + i[1] > last_result:
+					retval[t[0]][str(i[0])] += last_result - counter # i[1] - ((counter + i[1]) - N)
+				else:
+					retval[t[0]][str(i[0])] += i[1]
+					counter += i[1]
 
-				message('Pay ' + str(format(int(destinations[0]['amount'])/1000000000, '.9f')) + \
-						' to ' + str(destinations[0]['address']))
+			for k in retval[t[0]]:
+				retval[t[0]][k] = int(((t[3])*(retval[t[0]][k]/float(last_result)))*(1-(POOL_FEE/100)))
+				message('Block ' + str(t[0]) + ' credits ' + str(format(int(retval[t[0]][k])/1000000000, '.9f'))\
+						+ ' for user ' + k + '.')
 
-	if valid_payment_message is True:
-		message('Payments completed')
+		message('Credits for block ' + str(t[0]) + ' calculated.')
 
-def get_working_hight(cur):
-	cur.execute('SELECT COALESCE(MAX(blk_id), 0) FROM credits')
-	return cur.fetchone()[0]
+	return retval
+
+def get_block_id(cur, height):
+	"""Get block id of height"""
+	try:
+		cur.execute("""SELECT blk_id FROM mined_blocks WHERE height=%s""", (height,))
+		return cur.fetchone()[0]
+	except:
+		error('Failed to get blk_id for block ' + str(height))
+
+def calculate_credit(cur):
+	"""Calculate credits using PPLNS system"""
+
+	# Get payment for each miner
+	N_shares = make_N_shares(cur)
+
+	# Record calculated credit with PPLNS system for each miner
+	for height in N_shares:
+		for uid in N_shares[height]:
+			blk_id = get_block_id(cur, height)
+			record_credit(cur, blk_id, uid, N_shares[height][uid])
+		change_block_status(cur, height, 4)
+
+def calculate_fee(ring_size, bytes_no, fee_multiplier):
+	fee = floor((bytes_no + 1023) / 1024) * FEE_PER_KB
+	fee += ring_size * FEE_PER_RING_MEMBER
+	return fee * fee_multiplier
+
+def estimate_rct_tx_size(n_inputs, mixin, n_outputs, extra_size, bulletproof):
+	size = 0
+
+	#  tx prefix
+
+	# first few bytes
+	size += 1 + 6
+
+	# vin
+	size += n_inputs * (1 + 6 + (mixin + 1) * 2 + 32)
+
+	# vout
+	size += n_outputs * (6 + 32)
+
+# extra
+	size += extra_size
+
+	# rct signatures
+
+	# type
+	size += 1
+
+	# rangeSigs
+	if bulletproof:
+		size += ((2 * 6 + 4 + 5) * 32 + 3) * n_outputs
+	else:
+		size += (2 * 64 * 32 + 32 + 64 * 32) * n_outputs
+
+# MGs
+	size += n_inputs * (64 * (mixin + 1) + 32)
+
+	# mixRing - not serialized, can be reconstructed
+	# size += 2 * 32 * (mixin+1) * n_inputs
+
+	# pseudoOuts
+	size += 32 * n_inputs
+	# ecdhInfo
+	size += 2 * 32 * n_outputs
+	# outPk - only commitment is saved
+	size += 32 * n_outputs
+	# txnFee
+	size += 4
+
+	return size
+
+def pay_payments(cur):
+	"""Pay payments base on credits and paid payments"""
+	destinations = []
+	destinations_uid = []
+	destinations_counter = 1
+	payment_id_destinations = []
+	payment_id_destinations_uid = []
+	new_payments = {}
+
+	user_payment_info = get_balances_and_thresholds(cur)
+
+	for i in user_payment_info:
+		if i[1] >= i[2]:
+			new_payments[i[0]] = int(i[1])
+
+	for uid in new_payments:
+		user_wallet = get_user_wallet(cur, uid)
+
+		amount = 100000000 # new_payments[uid]
+		if len(destinations) != destinations_counter:
+			destinations.append([])
+			destinations_uid.append([])
+		if '.' in user_wallet:
+			payment_id_destinations.append([{'amount': amount,
+											'address': user_wallet.split('.')[0]}])
+			payment_id_destinations_uid.append([{'uid': uid, 'payment_id': user_wallet.split('.')[1], 'fee': 0}])
+		elif user_wallet.startswith('RYoE'):
+			payment_id_destinations.append([{'amount': amount,
+											'address': user_wallet}])
+			payment_id_destinations_uid.append([{'uid': uid, 'payment_id': '', 'fee': 0}])
+
+		else:
+			destinations[destinations_counter-1].append({'amount': amount,
+														'address': user_wallet})
+			destinations_uid[destinations_counter-1].append({'uid': uid, 'payment_id': '', 'fee': 0})
+
+		if len(destinations[destinations_counter-1]) == TRANSFER_MAX_RECIPIENTS:
+			destinations_counter += 1
+
+	if TESTING_MODE is True:
+		with open('Payments', 'a+') as f:
+			f.writelines('destinations:\n')
+			pprint(destinations, f)
+			f.writelines('destinations_uid:\n')
+			pprint(destinations_uid, f)
+			f.writelines('payment_id_destinations:\n')
+			pprint(payment_id_destinations, f)
+			f.writelines('payment_id_destinations_uid:\n')
+			pprint(payment_id_destinations_uid, f)
+			f.writelines('\n\n\n\n\n')
+
+	process_payment(cur, destinations, destinations_uid)
+
+	process_payment(cur, payment_id_destinations, payment_id_destinations_uid)
+
+	message('Payments completed')
+
+def process_payment(cur, dest, uids):
+	"""Process payment"""
+	for i in range(len(dest)):
+		json_data = {}
+		transfer_info = {}
+
+		if TESTING_MODE is True:
+			bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=TRANSFER_RING_SIZE - 1, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
+			fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=TRANSFER_PRIORITY)
+
+			fee_for_each_one = floor(fee/len(dest[i]))
+
+			for d in dest[i]:
+				d['amount'] = d['amount'] - fee_for_each_one
+
+			for u in uids[i]:
+				u['fee'] = fee_for_each_one
+
+			json_data['tx_hash'] = 'TEST'
+			transfer_info['transfer'] = {}
+			transfer_info['transfer']['timestamp'] = 1536234479
+			for j in range(len(dest[i])):
+				submit_payment(cur,
+								uids[i][j]['uid'],
+								dest[i][j]['amount'],
+								json_data['tx_hash'],
+								transfer_info['transfer']['timestamp'],
+								uids[i][j]['fee'])
+
+				message('Pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+						' to ' + str(dest[i][j]['address']) + \
+						' for user ' + str(uids[i][j]['uid']) + '.')
+		else:
+			try:
+				bytes_no = estimate_rct_tx_size(n_inputs=2, mixin=TRANSFER_RING_SIZE - 1, n_outputs=len(dest[i])+1, extra_size=0, bulletproof=True)
+				fee = calculate_fee(ring_size=25, bytes_no=bytes_no, fee_multiplier=TRANSFER_PRIORITY)
+
+				fee_for_each_one = floor(fee/len(dest[i]))
+
+				for d in dest[i]:
+					d['amount'] = d['amount'] - fee_for_each_one
+
+				for u in uids[i]:
+					u['fee'] = fee_for_each_one
+
+				if uids[i][0]['payment_id'] == '':
+					json_data = wallet_rpc('transfer',
+											{'destinations': dest[i], \
+												'priority': TRANSFER_PRIORITY, \
+												'mixin': TRANSFER_RING_SIZE - 1}) # 'get_tx_key': True
+				else:
+					json_data = wallet_rpc('transfer',
+											{'destinations': dest[i], \
+												'payment_id': uids[i][0]['payment_id'], \
+												'priority': TRANSFER_PRIORITY, \
+												'mixin': TRANSFER_RING_SIZE - 1}) # 'get_tx_key': True
+
+				transfer_info = wallet_rpc('get_transfer_by_txid', {'txid': json_data['tx_hash']})
+
+				with open('fee', 'a+') as f:
+					f.writelines('Calculated: ' + str(fee) + '\n')
+					f.writelines('Actual: ' + str(transfer_info['transfer']['fee']) + '\n')
+					f.writelines('Diff: ' + str(fee-transfer_info['transfer']['fee']) + '\n\n\n')
+
+				for j in range(len(dest[i])):
+					result = submit_payment(cur, 
+											uids[i][j]['uid'],
+											dest[i][j]['amount'], 
+											json_data['tx_hash'],
+											transfer_info['transfer']['timestamp'],
+											uids[i][j]['fee'])
+
+					if result == True:
+						message('Pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+								' to ' + str(dest[i][j]['address']) + \
+								' for user ' + str(uids[i][j]['uid']) + '.')
+					else:
+						error('Failed to record payment ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+								' to ' + str(dest[i][j]['address']) + \
+								' for user ' + str(uids[i][j]['uid']) + '.')
+
+			except RuntimeError:
+				for j in range(len(dest[i])):
+					error('Failed to pay ' + str(format(int(dest[i][j]['amount'])/1000000000, '.9f')) + \
+							' to ' + str(dest[i][j]['address']) + \
+							' for user ' + str(uids[i][j]['uid']) + '.')
+		time.sleep(1)
+
+def get_wallet_height():
+	"""Get the wallet's current block height"""
+	return wallet_rpc('getheight')['height']
 
 try:
+	message('Hello!')
 	CONN = None
 	CURS = None
 	CONN, CURS = connection_init()
@@ -337,31 +779,19 @@ try:
 
 	while True:
 
-		message('Block: ' + str(WORKING_HIGHT))
+		message('Block: ' + str(get_wallet_height()))
 
-		check_payment_status(CURS)
+		update_payment_status(CURS)
 
-		WORKING_HIGHT = get_working_hight(CURS)
+		update_block_status(CURS)
 
-		CURRENT_BLOCK_STATUS = get_block_status(CURS, WORKING_HIGHT)
+		calculate_credit(CURS)
 
-		IS_WORKING_IN_THIS_BLOCK_ENDS = False
-		if CURRENT_BLOCK_STATUS is not None:
-			if CURRENT_BLOCK_STATUS == 2:
-
-				PAST_BLOCK_STATUS = get_block_status(CURS, WORKING_HIGHT - 60)
-				if PAST_BLOCK_STATUS is not None:
-					if PAST_BLOCK_STATUS == 3:
-
-						calculate_credit(CURS, WORKING_HIGHT - 60)
-
-		NEW_PAYMENTS = get_new_payments(CURS)
-
-		pay_payments(CURS, NEW_PAYMENTS)
+		pay_payments(CURS)
 
 		print()
 
-		time.sleep(SLEEP_TIME)
+		time.sleep(PAYMENT_INTERVAL)
 
 except KeyboardInterrupt:
 	print()
@@ -371,3 +801,6 @@ except KeyboardInterrupt:
 except RuntimeError as my_exception:
 	error(my_exception)
 	traceback.print_exception(*sys.exc_info())
+
+else:
+	close_connection(CONN, CURS)

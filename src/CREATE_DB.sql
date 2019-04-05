@@ -13,7 +13,7 @@ CREATE TABLE wpv1.users (
 	payment_threshold BIGINT NOT NULL DEFAULT 1000000000
 );
 CREATE UNIQUE INDEX wallet_idx ON wpv1.users(wallet);
-CREATE TYPE status_setting AS ENUM ('FAILED', 'MONITORED', 'SUCCESS');
+CREATE TYPE status_setting AS ENUM ('FAILED', 'MONITORED', 'SUCCESS', 'FEE');
 CREATE TABLE wpv1.payments (
 	pymt_id SERIAL PRIMARY KEY, 
 	uid INTEGER NOT NULL, 
